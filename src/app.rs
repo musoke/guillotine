@@ -48,7 +48,30 @@ impl App {
 
         let gtk_builder = gtk::Builder::new_from_file("res/main_window.glade");
 
-        gtk_app.connect_activate(clone!(gtk_builder => move |app| {
+        let (command_chan_tx, command_chan_rx) = futures::sync::mpsc::channel(1);
+        let command_chan_tx = command_chan_tx.wait();
+
+        // Create channel to allow the matrix connection thread to send closures to the main loop.
+        let (ui_dispatch_chan_tx, ui_dispatch_chan_rx) = std::sync::mpsc::channel();
+
+        let bg_thread_join_handle =
+            thread::spawn(move || bg_thread::run(command_chan_rx, ui_dispatch_chan_tx));
+
+        let app = App {
+            gtk_app,
+            gtk_builder,
+            command_chan_tx,
+            ui_dispatch_chan_rx,
+            bg_thread_join_handle,
+        };
+
+        app.connect_gtk();
+        app
+    }
+
+    pub fn connect_gtk(&self) {
+        let gtk_builder = self.gtk_builder.clone();
+        self.gtk_app.connect_activate(move |app| {
             // Set up shutdown callback
             let window: gtk::Window = gtk_builder.get_object("main_window")
                 .expect("Couldn't find main_window in ui file.");
@@ -65,29 +88,39 @@ impl App {
             let user_menu: gtk::Popover = gtk_builder.get_object("user_menu")
                 .expect("Couldn't find user_menu in ui file.");
 
-            user_button.connect_clicked(move |_| user_menu.show());
+            user_button.connect_clicked(move |_| user_menu.show_all());
+
+            // Login click
+            let login_btn: gtk::Button = gtk_builder.get_object("login_button")
+                .expect("Couldn't find login_button in ui file.");
+            //login_btn.connect_clicked(move |_| self.login());
 
             // Associate window with the Application and show it
             window.set_application(Some(app));
             window.show_all();
-        }));
+        });
+    }
 
-        let (command_chan_tx, command_chan_rx) = futures::sync::mpsc::channel(1);
-        let command_chan_tx = command_chan_tx.wait();
+    pub fn login(&self) {
+        //self.connect(username, password, server);
+        println!("LOGIN");
+    }
 
-        // Create channel to allow the matrix connection thread to send closures to the main loop.
-        let (ui_dispatch_chan_tx, ui_dispatch_chan_rx) = std::sync::mpsc::channel();
+    pub fn connect(&mut self, username: String, password: String, server: Option<String>) {
+        let server_url = match server {
+            Some(s) => s,
+            None => String::from("https://matrix.org")
+        };
 
-        let bg_thread_join_handle =
-            thread::spawn(move || bg_thread::run(command_chan_rx, ui_dispatch_chan_tx));
-
-        App {
-            gtk_app,
-            gtk_builder,
-            command_chan_tx,
-            ui_dispatch_chan_rx,
-            bg_thread_join_handle,
-        }
+        self.command_chan_tx
+            .send(Command::Connect {
+                homeserver_url: Url::parse(&server_url).unwrap(),
+                connection_method: ConnectionMethod::Login {
+                    username: username,
+                    password: password,
+                },
+            })
+            .unwrap(); // TODO: How to handle background thread crash?
     }
 
     pub fn run(mut self) {
@@ -95,6 +128,9 @@ impl App {
         // and envd::args() returns an iterator of Strings.
         let args = env::args().collect::<Vec<_>>();
         let args_refs = args.iter().map(|x| &x[..]).collect::<Vec<_>>();
+
+        // TODO: connect as guess user or use stored data
+        self.connect(String::from("TODO"), String::from("TODO"), None);
 
         // Poll the matrix communication thread channel and run the closures to allow
         // the threads to run actions in the main loop.
@@ -107,16 +143,6 @@ impl App {
 
             Continue(true)
         });
-
-        self.command_chan_tx
-            .send(Command::Connect {
-                homeserver_url: Url::parse("https://matrix.org").unwrap(),
-                connection_method: ConnectionMethod::Login {
-                    username: "TODO".to_owned(),
-                    password: "TODO".to_owned(),
-                },
-            })
-            .unwrap(); // TODO: How to handle background thread crash?
 
         // Run the main loop.
         self.gtk_app.run(args_refs.len() as i32, &args_refs);
