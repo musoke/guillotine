@@ -1,5 +1,6 @@
 use std::{self, env, thread};
 use std::time::Duration;
+use std::sync::{Arc, Mutex};
 
 use futures::{self, Sink};
 use gio;
@@ -12,6 +13,52 @@ use bg_thread::{self, Command, ConnectionMethod};
 // TODO: Is this the correct format for GApplication IDs?
 const APP_ID: &'static str = "jplatte.ruma_gtk";
 
+
+struct AppLogic {
+    gtk_builder: gtk::Builder,
+
+    /// Sender for the matrix channel.
+    ///
+    /// This channel is used to send commands to the background thread.
+    command_chan_tx: futures::sink::Wait<futures::sync::mpsc::Sender<bg_thread::Command>>,
+}
+
+impl AppLogic {
+    pub fn login(&mut self) {
+        let user_entry: gtk::Entry = self.gtk_builder.get_object("login_username").unwrap();
+        let pass_entry: gtk::Entry = self.gtk_builder.get_object("login_password").unwrap();
+        let server_entry: gtk::Entry = self.gtk_builder.get_object("login_server").unwrap();
+
+        let username = match user_entry.get_text() { Some(s) => s, None => String::from("") };
+        let password = match pass_entry.get_text() { Some(s) => s, None => String::from("") };
+
+        println!("Login: {}, {}", username, password);
+
+        self.connect(username, password, server_entry.get_text());
+    }
+
+    pub fn connect(&mut self, username: String, password: String, server: Option<String>) {
+        let server_url = match server {
+            Some(s) => s,
+            None => String::from("https://matrix.org")
+        };
+
+        let res = self.command_chan_tx
+            .send(Command::Connect {
+                homeserver_url: Url::parse(&server_url).unwrap(),
+                connection_method: ConnectionMethod::Login {
+                    username: username,
+                    password: password,
+                },
+            });
+
+        match res {
+            Ok(_) => {},
+            Err(error) => println!("{:?}", error)
+        }
+    }
+}
+
 /// State for the main thread.
 ///
 /// It takes care of starting up the application and for loading and accessing the
@@ -23,11 +70,6 @@ pub struct App {
     /// Used to access the UI elements.
     gtk_builder: gtk::Builder,
 
-    /// Sender for the matrix channel.
-    ///
-    /// This channel is used to send commands to the background thread.
-    command_chan_tx: futures::sink::Wait<futures::sync::mpsc::Sender<bg_thread::Command>>,
-
     /// Channel receiver which allows to run actions from the matrix connection thread.
     ///
     /// Long polling is required to receive messages from the rooms and so they have to
@@ -38,6 +80,8 @@ pub struct App {
     /// Matrix communication thread join handler used to clean up the tread when
     /// closing the application.
     bg_thread_join_handle: thread::JoinHandle<()>,
+
+    logic: Arc<Mutex<AppLogic>>,
 }
 
 impl App {
@@ -57,12 +101,14 @@ impl App {
         let bg_thread_join_handle =
             thread::spawn(move || bg_thread::run(command_chan_rx, ui_dispatch_chan_tx));
 
+        let logic = Arc::new(Mutex::new(AppLogic{ gtk_builder: gtk_builder.clone(), command_chan_tx }));
+
         let app = App {
             gtk_app,
             gtk_builder,
-            command_chan_tx,
             ui_dispatch_chan_rx,
             bg_thread_join_handle,
+            logic: logic.clone(),
         };
 
         app.connect_gtk();
@@ -71,6 +117,7 @@ impl App {
 
     pub fn connect_gtk(&self) {
         let gtk_builder = self.gtk_builder.clone();
+        let logic = self.logic.clone();
         self.gtk_app.connect_activate(move |app| {
             // Set up shutdown callback
             let window: gtk::Window = gtk_builder.get_object("main_window")
@@ -93,34 +140,13 @@ impl App {
             // Login click
             let login_btn: gtk::Button = gtk_builder.get_object("login_button")
                 .expect("Couldn't find login_button in ui file.");
-            //login_btn.connect_clicked(move |_| self.login());
+            let logic_c = logic.clone();
+            login_btn.connect_clicked(move |_| logic_c.lock().unwrap().login());
 
             // Associate window with the Application and show it
             window.set_application(Some(app));
             window.show_all();
         });
-    }
-
-    pub fn login(&self) {
-        //self.connect(username, password, server);
-        println!("LOGIN");
-    }
-
-    pub fn connect(&mut self, username: String, password: String, server: Option<String>) {
-        let server_url = match server {
-            Some(s) => s,
-            None => String::from("https://matrix.org")
-        };
-
-        self.command_chan_tx
-            .send(Command::Connect {
-                homeserver_url: Url::parse(&server_url).unwrap(),
-                connection_method: ConnectionMethod::Login {
-                    username: username,
-                    password: password,
-                },
-            })
-            .unwrap(); // TODO: How to handle background thread crash?
     }
 
     pub fn run(mut self) {
@@ -130,7 +156,7 @@ impl App {
         let args_refs = args.iter().map(|x| &x[..]).collect::<Vec<_>>();
 
         // TODO: connect as guess user or use stored data
-        self.connect(String::from("TODO"), String::from("TODO"), None);
+        //self.logic.lock().unwrap().connect(String::from("TODO"), String::from("TODO"), None);
 
         // Poll the matrix communication thread channel and run the closures to allow
         // the threads to run actions in the main loop.
