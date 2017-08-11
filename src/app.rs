@@ -57,6 +57,24 @@ impl AppLogic {
             Err(error) => println!("{:?}", error)
         }
     }
+
+    pub fn connect_guest(&mut self, server: Option<String>) {
+        let server_url = match server {
+            Some(s) => s,
+            None => String::from("https://matrix.org")
+        };
+
+        let res = self.command_chan_tx
+            .send(Command::Connect {
+                homeserver_url: Url::parse(&server_url).unwrap(),
+                connection_method: ConnectionMethod::Guest
+            });
+
+        match res {
+            Ok(_) => {},
+            Err(error) => println!("{:?}", error)
+        }
+    }
 }
 
 /// State for the main thread.
@@ -155,8 +173,9 @@ impl App {
         let args = env::args().collect::<Vec<_>>();
         let args_refs = args.iter().map(|x| &x[..]).collect::<Vec<_>>();
 
-        // TODO: connect as guess user or use stored data
-        //self.logic.lock().unwrap().connect(String::from("TODO"), String::from("TODO"), None);
+        // connecting as guest
+        // TODO: Use stored user if exists
+        self.logic.lock().unwrap().connect_guest(None);
 
         // Poll the matrix communication thread channel and run the closures to allow
         // the threads to run actions in the main loop.
