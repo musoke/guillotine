@@ -1,11 +1,13 @@
 extern crate gtk;
 extern crate gio;
+extern crate gdk_pixbuf;
 
 use std::env;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::channel;
 use std::sync::mpsc::{Sender, Receiver};
 
+use self::gdk_pixbuf::Pixbuf;
 use self::gtk::prelude::*;
 
 use backend::Backend;
@@ -56,6 +58,7 @@ impl AppOp {
 
     pub fn get_username(&self) {
         self.backend.get_username().unwrap();
+        self.backend.get_avatar().unwrap();
     }
 
     pub fn set_username(&self, username: &str) {
@@ -63,6 +66,20 @@ impl AppOp {
             .get_object::<gtk::Label>("display_name_label")
             .expect("Can't find display_name_label in ui file.")
             .set_text(username);
+        self.show_username();
+    }
+
+    pub fn set_avatar(&self, fname: &str) {
+        let image = self.gtk_builder
+            .get_object::<gtk::Image>("profile_image")
+            .expect("Can't find profile_image in ui file.");
+
+        if let Ok(pixbuf) = Pixbuf::new_from_file_at_size(fname, 20, 20) {
+            image.set_from_pixbuf(&pixbuf);
+        } else {
+            image.set_from_stock("image-missing", 20);
+        }
+
         self.show_username();
     }
 
@@ -131,6 +148,9 @@ impl App {
                 },
                 Ok(backend::BKResponse::Name(username)) => {
                     theop.lock().unwrap().set_username(&username);
+                },
+                Ok(backend::BKResponse::Avatar(path)) => {
+                    theop.lock().unwrap().set_avatar(&path);
                 },
                 Err(_) => { },
             };

@@ -1,11 +1,18 @@
 extern crate url;
 extern crate reqwest;
+extern crate regex;
+
+use self::regex::Regex;
 
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::collections::HashMap;
 use self::url::Url;
 use std::sync::mpsc::Sender;
+use std::io::Read;
+
+use std::fs::File;
+use std::io::prelude::*;
 
 // TODO: send errors to the frontend
 
@@ -85,6 +92,7 @@ pub struct Backend {
 pub enum BKResponse {
     Token(String, String),
     Name(String),
+    Avatar(String),
 }
 
 #[derive(Deserialize)]
@@ -98,6 +106,12 @@ pub struct Response {
 #[derive(Debug)]
 pub struct DisplayNameResponse {
     displayname: String,
+}
+
+#[derive(Deserialize)]
+#[derive(Debug)]
+pub struct AvatarUrlResponse {
+    avatar_url: String,
 }
 
 impl Backend {
@@ -169,6 +183,40 @@ impl Backend {
                 tx.send(BKResponse::Name(r.displayname.clone())).unwrap();
             }
         );
+
+        Ok(())
+    }
+
+    pub fn get_avatar(&self) -> Result<(), Error> {
+        let s = self.data.lock().unwrap().server_url.clone();
+        let id = self.data.lock().unwrap().user_id.clone() + "/";
+        let baseu = Url::parse(&s)?;
+        let url = baseu.join("/_matrix/client/r0/profile/")?.join(&id)?.join("avatar_url")?;
+        let map: HashMap<String, String> = HashMap::new();
+
+        let tx = self.tx.clone();
+        get!(url, map, AvatarUrlResponse,
+            |r: AvatarUrlResponse| {
+                let re = Regex::new(r"mxc://(?P<server>[^/]+)/(?P<media>.+)").unwrap();
+                let caps = re.captures(&r.avatar_url).unwrap();
+                let (server, media) = (String::from(&caps["server"]), String::from(&caps["media"]));
+                let mut url = baseu.join("/_matrix/media/r0/thumbnail/").unwrap();
+                url = url.join(&(server + "/")).unwrap();
+                url = url.join(&(media + "?width=64&height=64&method=scale")).unwrap();
+
+                let client = reqwest::Client::new().unwrap();
+                let mut conn = client.get(url.as_str()).unwrap();
+                let mut res = conn.send().unwrap();
+
+                let fname = String::from("/tmp/avatar");
+                let mut file = File::create(&fname).unwrap();
+                let mut buffer = Vec::new();
+                res.read_to_end(&mut buffer).unwrap();
+                file.write_all(&buffer).unwrap();
+                println!("image created! {}", fname);
+
+                tx.send(BKResponse::Avatar(fname)).unwrap();
+        });
 
         Ok(())
     }
