@@ -48,9 +48,12 @@ struct AppOp {
 
 impl AppOp {
     pub fn login(&self) {
-        let user_entry: gtk::Entry = self.gtk_builder.get_object("login_username").unwrap();
-        let pass_entry: gtk::Entry = self.gtk_builder.get_object("login_password").unwrap();
-        let server_entry: gtk::Entry = self.gtk_builder.get_object("login_server").unwrap();
+        let user_entry: gtk::Entry = self.gtk_builder.get_object("login_username")
+            .expect("Can't find login_username in ui file.");
+        let pass_entry: gtk::Entry = self.gtk_builder.get_object("login_password")
+            .expect("Can't find login_password in ui file.");
+        let server_entry: gtk::Entry = self.gtk_builder.get_object("login_server")
+            .expect("Can't find login_server in ui file.");
 
         let username = match user_entry.get_text() { Some(s) => s, None => String::from("") };
         let password = match pass_entry.get_text() { Some(s) => s, None => String::from("") };
@@ -71,7 +74,11 @@ impl AppOp {
             });
 
         self.show_loading();
-        self.backend.login(username, password, server_url).unwrap();
+        self.backend.login(username.clone(), password.clone(), server_url.clone())
+            .unwrap_or_else(move |_| {
+                // TODO: show an error
+                println!("Error: Can't login with {} in {}", username, server_url);
+            });
         self.hide_popup();
     }
 
