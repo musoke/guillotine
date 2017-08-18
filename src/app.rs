@@ -2,6 +2,10 @@ extern crate gtk;
 extern crate gio;
 extern crate gdk_pixbuf;
 
+extern crate secret_service;
+use self::secret_service::SecretService;
+use self::secret_service::EncryptionType;
+
 use std::env;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::channel;
@@ -14,6 +18,25 @@ use backend::Backend;
 use backend;
 
 
+macro_rules! derror {
+    ($from: path, $to: path) => {
+        impl From<$from> for Error {
+            fn from(_: $from) -> Error {
+                $to
+            }
+        }
+    };
+}
+
+
+#[derive(Debug)]
+pub enum Error {
+    SecretServiceError,
+}
+
+derror!(secret_service::SsError, Error::SecretServiceError);
+
+
 // TODO: Is this the correct format for GApplication IDs?
 const APP_ID: &'static str = "org.gnome.guillotine";
 
@@ -24,7 +47,7 @@ struct AppOp {
 }
 
 impl AppOp {
-    pub fn login(&mut self) {
+    pub fn login(&self) {
         let user_entry: gtk::Entry = self.gtk_builder.get_object("login_username").unwrap();
         let pass_entry: gtk::Entry = self.gtk_builder.get_object("login_password").unwrap();
         let server_entry: gtk::Entry = self.gtk_builder.get_object("login_server").unwrap();
@@ -35,18 +58,24 @@ impl AppOp {
         self.connect(username, password, server_entry.get_text());
     }
 
-    pub fn connect(&mut self, username: String, password: String, server: Option<String>) {
+    pub fn connect(&self, username: String, password: String, server: Option<String>) {
         let server_url = match server {
             Some(s) => s,
             None => String::from("https://matrix.org")
         };
+
+        self.store_pass(username.clone(), password.clone(), server_url.clone())
+            .unwrap_or_else(|_| {
+                // TODO: show an error
+                println!("Error: Can't store the password using libsecret");
+            });
 
         self.show_loading();
         self.backend.login(username, password, server_url).unwrap();
         self.hide_popup();
     }
 
-    pub fn connect_guest(&mut self, server: Option<String>) {
+    pub fn connect_guest(&self, server: Option<String>) {
         let server_url = match server {
             Some(s) => s,
             None => String::from("https://matrix.org")
@@ -103,8 +132,67 @@ impl AppOp {
         user_menu.hide();
     }
 
-    pub fn disconnect(&mut self) {
+    pub fn disconnect(&self) {
         println!("Disconnecting");
+    }
+
+    pub fn store_pass(&self, username: String, password: String, server: String) -> Result<(), Error> {
+        let ss = SecretService::new(EncryptionType::Dh)?;
+        let collection = ss.get_default_collection()?;
+
+        //create new item
+        collection.create_item(
+            "guillotine", // label
+            vec![
+                ("username", &username),
+                ("server", &server),
+            ], // properties
+            password.as_bytes(), //secret
+            true, // replace item with same attributes
+            "text/plain" // secret content type
+        )?;
+
+        Ok(())
+    }
+
+    pub fn get_pass(&self) -> Result<(String, String, String), Error> {
+        let ss = SecretService::new(EncryptionType::Dh)?;
+        let collection = ss.get_default_collection()?;
+        let allpass = collection.get_all_items()?;
+
+        let passwd = allpass.iter()
+            .find(|x| x.get_label().unwrap_or(String::from("")) == "guillotine");
+
+        if passwd.is_none() {
+            return Err(Error::SecretServiceError);
+        }
+
+        let p = passwd.unwrap();
+        let attrs = p.get_attributes()?;
+        let secret = p.get_secret()?;
+
+        let mut attr = attrs.iter().find(|&ref x| x.0 == "username")
+            .ok_or(Error::SecretServiceError)?;
+        let username = attr.1.clone();
+        attr = attrs.iter().find(|&ref x| x.0 == "server")
+            .ok_or(Error::SecretServiceError)?;
+        let server = attr.1.clone();
+
+        let tup = (
+            username,
+            String::from_utf8(secret).unwrap(),
+            server,
+        );
+
+        Ok(tup)
+    }
+
+    pub fn init(&self) {
+        if let Ok(pass) = self.get_pass() {
+            self.connect(pass.0, pass.1, Some(pass.2));
+        } else {
+            self.connect_guest(None);
+        }
     }
 }
 
@@ -212,9 +300,7 @@ impl App {
         let args = env::args().collect::<Vec<_>>();
         let args_refs = args.iter().map(|x| &x[..]).collect::<Vec<_>>();
 
-        // connecting as guest
-        // TODO: Use stored user if exists
-        self.op.lock().unwrap().connect_guest(None);
+        self.op.lock().unwrap().init();
 
         // Run the main loop.
         self.gtk_app.run(args_refs.len() as i32, &args_refs);
