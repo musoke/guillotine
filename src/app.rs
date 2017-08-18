@@ -198,6 +198,11 @@ impl AppOp {
             self.connect_guest(None);
         }
     }
+
+    pub fn sync(&self) {
+        // TODO add a timeout_add for this
+        self.backend.sync().unwrap();
+    }
 }
 
 /// State for the main thread.
@@ -237,6 +242,7 @@ impl App {
                 Ok(backend::BKResponse::Token(uid, _)) => {
                     theop.lock().unwrap().set_username(&uid);
                     theop.lock().unwrap().get_username();
+                    theop.lock().unwrap().sync();
                 },
                 Ok(backend::BKResponse::Name(username)) => {
                     theop.lock().unwrap().set_username(&username);

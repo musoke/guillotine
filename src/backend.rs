@@ -2,9 +2,11 @@ extern crate url;
 extern crate reqwest;
 extern crate regex;
 extern crate xdg;
-
+extern crate serde_json;
 
 use self::regex::Regex;
+
+use self::serde_json::Value as JsonValue;
 
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -20,6 +22,12 @@ use std::io;
 // TODO: send errors to the frontend
 
 macro_rules! get {
+    ($url: expr, $attrs: expr, $okcb: expr) => {
+        query!(get, $url, $attrs, JsonValue, $okcb, |err| {
+                println!("ERROR {:?}", err);
+            });
+    };
+
     ($url: expr, $attrs: expr, $resp: ident, $okcb: expr) => {
         query!(get, $url, $attrs, $resp, $okcb, |err| {
                 println!("ERROR {:?}", err);
@@ -28,6 +36,12 @@ macro_rules! get {
 }
 
 macro_rules! post {
+    ($url: expr, $attrs: expr, $okcb: expr) => {
+        query!(post, $url, $attrs, JsonValue, $okcb, |err| {
+                println!("ERROR {:?}", err);
+            });
+    };
+
     ($url: expr, $attrs: expr, $resp: ident, $okcb: expr) => {
         query!(post, $url, $attrs, $resp, $okcb, |err| {
                 println!("ERROR {:?}", err);
@@ -102,6 +116,7 @@ pub struct BackendData {
     user_id: String,
     access_token: String,
     server_url: String,
+    since: String,
 }
 
 pub struct Backend {
@@ -116,24 +131,6 @@ pub enum BKResponse {
     Avatar(String),
 }
 
-#[derive(Deserialize)]
-#[derive(Debug)]
-pub struct Response {
-    user_id: String,
-    access_token: String,
-}
-
-#[derive(Deserialize)]
-#[derive(Debug)]
-pub struct DisplayNameResponse {
-    displayname: String,
-}
-
-#[derive(Deserialize)]
-#[derive(Debug)]
-pub struct AvatarUrlResponse {
-    avatar_url: String,
-}
 
 impl Backend {
     pub fn new(tx: Sender<BKResponse>) -> Backend {
@@ -141,6 +138,7 @@ impl Backend {
                     user_id: String::from("Guest"),
                     access_token: String::from(""),
                     server_url: String::from("https://matrix.org"),
+                    since: String::from(""),
         };
         Backend { tx: tx, data: Arc::new(Mutex::new(data)) }
     }
@@ -154,10 +152,10 @@ impl Backend {
 
         let data = self.data.clone();
         let tx = self.tx.clone();
-        post!(url, map, Response,
-            |r: Response| {
-                let uid = r.user_id.clone();
-                let tk = r.access_token.clone();
+        post!(url, map,
+            |r: JsonValue| {
+                let uid = String::from(r["user_id"].as_str().unwrap_or(""));
+                let tk = String::from(r["access_token"].as_str().unwrap_or(""));
                 data.lock().unwrap().user_id = uid.clone();
                 data.lock().unwrap().access_token = tk.clone();
                 tx.send(BKResponse::Token(uid, tk)).unwrap();
@@ -179,10 +177,11 @@ impl Backend {
 
         let data = self.data.clone();
         let tx = self.tx.clone();
-        post!(url, map, Response,
-            |r: Response| {
-                let uid = r.user_id.clone();
-                let tk = r.access_token.clone();
+        post!(url, map,
+            |r: JsonValue| {
+                let uid = String::from(r["user_id"].as_str().unwrap_or(""));
+                let tk = String::from(r["access_token"].as_str().unwrap_or(""));
+
                 data.lock().unwrap().user_id = uid.clone();
                 data.lock().unwrap().access_token = tk.clone();
                 tx.send(BKResponse::Token(uid, tk)).unwrap();
@@ -199,9 +198,10 @@ impl Backend {
         let map: HashMap<String, String> = HashMap::new();
 
         let tx = self.tx.clone();
-        get!(url, map, DisplayNameResponse,
-            |r: DisplayNameResponse| {
-                tx.send(BKResponse::Name(r.displayname.clone())).unwrap();
+        get!(url, map,
+            |r: JsonValue| {
+                let name = String::from(r["displayname"].as_str().unwrap_or(""));
+                tx.send(BKResponse::Name(name)).unwrap();
             }
         );
 
@@ -216,10 +216,55 @@ impl Backend {
         let map: HashMap<String, String> = HashMap::new();
 
         let tx = self.tx.clone();
-        get!(url, map, AvatarUrlResponse,
-            |r: AvatarUrlResponse| {
-                let fname = thumb!(baseu, &r.avatar_url).unwrap();
+        get!(url, map,
+            |r: JsonValue| {
+                let url = String::from(r["avatar_url"].as_str().unwrap_or(""));
+                let fname = thumb!(baseu, &url).unwrap();
+
                 tx.send(BKResponse::Avatar(fname)).unwrap();
+        });
+
+        Ok(())
+    }
+
+    pub fn sync(&self) -> Result<(), Error> {
+        let s = self.data.lock().unwrap().server_url.clone();
+        let token = self.data.lock().unwrap().access_token.clone();
+        let since = self.data.lock().unwrap().since.clone();
+        let baseu = Url::parse(&s)?;
+
+        let params: String;
+
+        if since.is_empty() {
+            params = format!("?full_state=false&timeout=30000&access_token={}", token);
+        } else {
+            params = format!("?full_state=false&timeout=30000&access_token={}&since={}", token, since);
+        }
+
+        let url = baseu.join("/_matrix/client/r0/sync")?.join(&params)?;
+        let map: HashMap<String, String> = HashMap::new();
+
+        let tx = self.tx.clone();
+        let data = self.data.clone();
+        get!(url, map,
+            |r: JsonValue| {
+                let next_batch = String::from(r["next_batch"].as_str().unwrap_or(""));
+                data.lock().unwrap().since = next_batch;
+
+                let rooms = &r["rooms"];
+                let invite = rooms["invite"].as_object().unwrap();
+                let join = rooms["join"].as_object().unwrap();
+                let leave = rooms["leave"].as_object().unwrap();
+
+                for k in join.keys() {
+                    let room = join.get(k).unwrap();
+                    let name = room["state"]["events"].as_array().unwrap().iter().find(|x| x["type"] == "m.room.name");
+                    let n = match name {
+                        None => k.clone(),
+                        Some(o) => String::from(o["content"]["name"].as_str().unwrap()),
+                    };
+                    println!("room {}: {}", k, n);
+                }
         });
 
         Ok(())
