@@ -147,7 +147,15 @@ impl AppOp {
         let ss = SecretService::new(EncryptionType::Dh)?;
         let collection = ss.get_default_collection()?;
 
-        //create new item
+        // deleting previous items
+        let allpass = collection.get_all_items()?;
+        let passwds = allpass.iter()
+            .filter(|x| x.get_label().unwrap_or(String::from("")) == "guillotine");
+        for p in passwds {
+            p.delete()?;
+        }
+
+        // create new item
         collection.create_item(
             "guillotine", // label
             vec![
