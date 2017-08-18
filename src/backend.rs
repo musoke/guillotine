@@ -1,6 +1,8 @@
 extern crate url;
 extern crate reqwest;
 extern crate regex;
+extern crate xdg;
+
 
 use self::regex::Regex;
 
@@ -13,6 +15,7 @@ use std::io::Read;
 
 use std::fs::File;
 use std::io::prelude::*;
+use std::io;
 
 // TODO: send errors to the frontend
 
@@ -58,6 +61,26 @@ macro_rules! query {
     };
 }
 
+macro_rules! media {
+    ($base: expr, $url: expr, $dest: expr) => {
+        dw_media($base, $url, false, $dest, 0, 0)
+    };
+    ($base: expr, $url: expr) => {
+        dw_media($base, $url, false, None, 0, 0)
+    };
+}
+
+macro_rules! thumb {
+    ($base: expr, $url: expr) => {
+        dw_media($base, $url, true, None, 64, 64)
+    };
+    ($base: expr, $url: expr, $size: expr) => {
+        dw_media($base, $url, true, None, $size, $size)
+    };
+    ($base: expr, $url: expr, $w: expr, $h: expr) => {
+        dw_media($base, $url, true, None, $w, $h)
+    };
+}
 
 #[derive(Debug)]
 pub enum Error {
@@ -71,11 +94,9 @@ impl From<reqwest::Error> for Error {
     }
 }
 
-impl From<url::ParseError> for Error {
-    fn from(_: url::ParseError) -> Error {
-        Error::BackendError
-    }
-}
+derror!(url::ParseError, Error::BackendError);
+derror!(io::Error, Error::BackendError);
+derror!(regex::Error, Error::BackendError);
 
 pub struct BackendData {
     user_id: String,
@@ -197,27 +218,54 @@ impl Backend {
         let tx = self.tx.clone();
         get!(url, map, AvatarUrlResponse,
             |r: AvatarUrlResponse| {
-                let re = Regex::new(r"mxc://(?P<server>[^/]+)/(?P<media>.+)").unwrap();
-                let caps = re.captures(&r.avatar_url).unwrap();
-                let (server, media) = (String::from(&caps["server"]), String::from(&caps["media"]));
-                let mut url = baseu.join("/_matrix/media/r0/thumbnail/").unwrap();
-                url = url.join(&(server + "/")).unwrap();
-                url = url.join(&(media + "?width=64&height=64&method=scale")).unwrap();
-
-                let client = reqwest::Client::new().unwrap();
-                let mut conn = client.get(url.as_str()).unwrap();
-                let mut res = conn.send().unwrap();
-
-                let fname = String::from("/tmp/avatar");
-                let mut file = File::create(&fname).unwrap();
-                let mut buffer = Vec::new();
-                res.read_to_end(&mut buffer).unwrap();
-                file.write_all(&buffer).unwrap();
-                println!("image created! {}", fname);
-
+                let fname = thumb!(baseu, &r.avatar_url).unwrap();
                 tx.send(BKResponse::Avatar(fname)).unwrap();
         });
 
         Ok(())
     }
+}
+
+fn get_media(url: &str) -> Result<Vec<u8>, Error> {
+    let client = reqwest::Client::new()?;
+    let mut conn = client.get(url)?;
+    let mut res = conn.send()?;
+
+    let mut buffer = Vec::new();
+    res.read_to_end(&mut buffer)?;
+
+    Ok(buffer)
+}
+
+fn dw_media(base: Url, url: &str, thumb: bool, dest: Option<&str>, w: i32, h: i32) -> Result<String, Error> {
+    let xdg_dirs = xdg::BaseDirectories::with_prefix("guillotine").unwrap();
+
+    let re = Regex::new(r"mxc://(?P<server>[^/]+)/(?P<media>.+)")?;
+    let caps = re.captures(url).ok_or(Error::BackendError)?;
+    let server = String::from(&caps["server"]);
+    let media = String::from(&caps["media"]);
+
+    let mut url: Url;
+
+    if thumb {
+        url = base.join("/_matrix/media/r0/thumbnail/")?;
+        url = url.join(&(server + "/"))?;
+        let f = format!("?width={}&height={}&method=scale", w, h);
+        url = url.join(&(media.clone() + &f))?;
+    } else {
+        url = base.join("/_matrix/media/r0/download/")?;
+        url = url.join(&(server + "/"))?;
+        url = url.join(&(media))?;
+    }
+
+    let fname = match dest {
+        None => String::from(xdg_dirs.place_cache_file(&media)?.to_str().ok_or(Error::BackendError)?),
+        Some(d) => String::from(d) + &media
+    };
+
+    let mut file = File::create(&fname)?;
+    let buffer = get_media(url.as_str())?;
+    file.write_all(&buffer)?;
+
+    Ok(fname)
 }

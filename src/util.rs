@@ -16,3 +16,14 @@ macro_rules! clone {
         }
     );
 }
+
+#[macro_export]
+macro_rules! derror {
+    ($from: path, $to: path) => {
+        impl From<$from> for Error {
+            fn from(_: $from) -> Error {
+                $to
+            }
+        }
+    };
+}
