@@ -129,6 +129,7 @@ pub enum BKResponse {
     Token(String, String),
     Name(String),
     Avatar(String),
+    Sync,
 }
 
 
@@ -227,6 +228,8 @@ impl Backend {
         Ok(())
     }
 
+    // TODO: first sync should get rooms and next_batch and store this in a config file or
+    // something to get it later. Later syncs should lookup for events and treat all correctly
     pub fn sync(&self) -> Result<(), Error> {
         let s = self.data.lock().unwrap().server_url.clone();
         let token = self.data.lock().unwrap().access_token.clone();
@@ -265,6 +268,7 @@ impl Backend {
                     };
                     println!("room {}: {}", k, n);
                 }
+                tx.send(BKResponse::Sync).unwrap();
         });
 
         Ok(())

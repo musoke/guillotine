@@ -200,7 +200,6 @@ impl AppOp {
     }
 
     pub fn sync(&self) {
-        // TODO add a timeout_add for this
         self.backend.sync().unwrap();
     }
 }
@@ -249,6 +248,10 @@ impl App {
                 },
                 Ok(backend::BKResponse::Avatar(path)) => {
                     theop.lock().unwrap().set_avatar(&path);
+                },
+                Ok(backend::BKResponse::Sync) => {
+                    println!("SYNC");
+                    theop.lock().unwrap().sync();
                 },
                 Err(_) => { },
             };
