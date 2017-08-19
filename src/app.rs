@@ -227,6 +227,7 @@ impl AppOp {
         self.backend.get_room_detail(self.active_room.clone(), String::from("m.room.name")).unwrap();
         self.backend.get_room_detail(self.active_room.clone(), String::from("m.room.topic")).unwrap();
         self.backend.get_room_avatar(self.active_room.clone()).unwrap();
+        self.backend.get_room_messages(self.active_room.clone()).unwrap();
     }
 
     pub fn set_room_detail(&self, key: String, value: String) {
@@ -261,6 +262,17 @@ impl AppOp {
         } else {
             image.set_from_stock("image-missing", 40);
         }
+    }
+
+    pub fn add_room_message(&self, msg: backend::Message) {
+        let messages = self.gtk_builder
+            .get_object::<gtk::ListBox>("message_list")
+            .expect("Can't find message_list in ui file.");
+
+        let body = msg.b;
+        let msg = gtk::Label::new(&body[..]);
+        msg.show();
+        messages.add(&msg);
     }
 }
 
@@ -323,6 +335,9 @@ impl App {
                 },
                 Ok(backend::BKResponse::RoomAvatar(avatar)) => {
                     theop.lock().unwrap().set_room_avatar(avatar);
+                },
+                Ok(backend::BKResponse::RoomMessage(msg)) => {
+                    theop.lock().unwrap().add_room_message(msg);
                 },
                 Err(_) => { },
             };

@@ -133,6 +133,17 @@ pub enum BKResponse {
     Rooms(HashMap<String, String>),
     RoomDetail(String, String),
     RoomAvatar(String),
+    RoomMessage(Message),
+}
+
+#[derive(Debug)]
+pub struct Message {
+    /// the message type
+    pub t: String,
+    /// the message body
+    pub b: String,
+    /// the message age
+    pub a: i64,
 }
 
 
@@ -323,6 +334,31 @@ impl Backend {
                     None => {}
                 }
                 tx.send(BKResponse::RoomAvatar(avatar)).unwrap();
+        });
+
+        Ok(())
+    }
+
+    pub fn get_room_messages(&self, roomid: String) -> Result<(), Error> {
+        let s = self.data.lock().unwrap().server_url.clone();
+        let tk = self.data.lock().unwrap().access_token.clone();
+        let baseu = Url::parse(&s)?;
+        let mut url = baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid + "/"))?.join("messages")?;
+        url = url.join(&format!("?access_token={}&dir=b&limit=40", tk))?;
+        let map: HashMap<String, String> = HashMap::new();
+
+        let tx = self.tx.clone();
+        get!(url, map,
+            |r: JsonValue| {
+                for msg in r["chunk"].as_array().unwrap().iter().rev() {
+                    println!("messages: {:#?}", msg);
+                    let m = Message {
+                        t: String::from(msg["content"]["msgtype"].as_str().unwrap()),
+                        b: String::from(msg["content"]["body"].as_str().unwrap()),
+                        a: msg["age"].as_i64().unwrap(),
+                    };
+                    tx.send(BKResponse::RoomMessage(m)).unwrap();
+                }
         });
 
         Ok(())
