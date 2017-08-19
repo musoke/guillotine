@@ -131,7 +131,8 @@ pub enum BKResponse {
     Avatar(String),
     Sync,
     Rooms(HashMap<String, String>),
-    RoomDetail(String, String, String),
+    RoomDetail(String, String),
+    RoomAvatar(String),
 }
 
 
@@ -278,39 +279,50 @@ impl Backend {
         Ok(())
     }
 
-    pub fn get_room_details(&self, roomid: String) -> Result<(), Error> {
+    pub fn get_room_detail(&self, roomid: String, key: String) -> Result<(), Error> {
         let s = self.data.lock().unwrap().server_url.clone();
         let tk = self.data.lock().unwrap().access_token.clone();
         let baseu = Url::parse(&s)?;
-        let mut url = baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid + "/"))?.join("state")?;
+        let mut url = baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid + "/"))?;
+        url = url.join(&format!("state/{}", key))?;
         url = url.join(&format!("?access_token={}", tk))?;
-        println!("url: {}", url.as_str());
+        let map: HashMap<String, String> = HashMap::new();
+
+        let tx = self.tx.clone();
+        let keys = key.clone();
+        get!(url, map,
+            |r: JsonValue| {
+                let mut value = String::from("");
+                let k = keys.split('.').last().unwrap();
+
+                match r[&k].as_str() {
+                    Some(x) => { value = String::from(x); },
+                    None => {}
+                }
+                tx.send(BKResponse::RoomDetail(key, value)).unwrap();
+        });
+
+        Ok(())
+    }
+
+    pub fn get_room_avatar(&self, roomid: String) -> Result<(), Error> {
+        let s = self.data.lock().unwrap().server_url.clone();
+        let tk = self.data.lock().unwrap().access_token.clone();
+        let baseu = Url::parse(&s)?;
+        let mut url = baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid + "/"))?.join("state/m.room.avatar")?;
+        url = url.join(&format!("?access_token={}", tk))?;
         let map: HashMap<String, String> = HashMap::new();
 
         let tx = self.tx.clone();
         get!(url, map,
             |r: JsonValue| {
-                let mut name = String::from("NONAMED");
                 let mut avatar = String::from("");
-                let mut topic = String::from("");
 
-                for p in r.as_array().unwrap() {
-                    match p["type"].as_str() {
-                        Some("m.room.name") => {
-                            name = String::from(p["content"]["name"].as_str().unwrap());
-                        },
-                        Some("m.room.topic") => {
-                            topic = String::from(p["content"]["topic"].as_str().unwrap());
-                        },
-                        Some("m.room.avatar") => {
-                            let url = p["content"]["url"].as_str().unwrap();
-                            avatar = thumb!(baseu.clone(), url).unwrap();
-                        },
-                        Some(_) => {},
-                        None => {}
-                    }
+                match r["url"].as_str() {
+                    Some(u) => { avatar = thumb!(baseu.clone(), u).unwrap(); },
+                    None => {}
                 }
-                tx.send(BKResponse::RoomDetail(name, topic, avatar)).unwrap();
+                tx.send(BKResponse::RoomAvatar(avatar)).unwrap();
         });
 
         Ok(())

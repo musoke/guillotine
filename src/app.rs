@@ -224,23 +224,35 @@ impl AppOp {
         self.active_room = room;
 
         // getting room details
-        self.backend.get_room_details(self.active_room.clone()).unwrap();
+        self.backend.get_room_detail(self.active_room.clone(), String::from("m.room.name")).unwrap();
+        self.backend.get_room_detail(self.active_room.clone(), String::from("m.room.topic")).unwrap();
+        self.backend.get_room_avatar(self.active_room.clone()).unwrap();
     }
 
-    pub fn set_room_details(&self, name: String, topic: String, avatar: String) {
+    pub fn set_room_detail(&self, key: String, value: String) {
+        let k: &str = &key;
+        match k {
+            "m.room.name" => {
+                let name_label = self.gtk_builder
+                    .get_object::<gtk::Label>("room_name")
+                    .expect("Can't find room_name in ui file.");
+                name_label.set_text(&value);
+            },
+            "m.room.topic" => {
+                let topic_label = self.gtk_builder
+                    .get_object::<gtk::Label>("room_topic")
+                    .expect("Can't find room_topic in ui file.");
+                topic_label.set_tooltip_text(&value[..]);
+                topic_label.set_text(&value);
+            }
+            _ => { println!("no key {}", key) }
+        };
+    }
+
+    pub fn set_room_avatar(&self, avatar: String) {
         let image = self.gtk_builder
             .get_object::<gtk::Image>("room_image")
             .expect("Can't find room_image in ui file.");
-        let name_label = self.gtk_builder
-            .get_object::<gtk::Label>("room_name")
-            .expect("Can't find room_name in ui file.");
-        let topic_label = self.gtk_builder
-            .get_object::<gtk::Label>("room_topic")
-            .expect("Can't find room_topic in ui file.");
-
-        name_label.set_text(&name);
-        topic_label.set_tooltip_text(&topic[..]);
-        topic_label.set_text(&topic);
 
         if !avatar.is_empty() {
             if let Ok(pixbuf) = Pixbuf::new_from_file_at_size(&avatar, 40, 40) {
@@ -306,8 +318,11 @@ impl App {
                 Ok(backend::BKResponse::Rooms(rooms)) => {
                     theop.lock().unwrap().set_rooms(rooms);
                 },
-                Ok(backend::BKResponse::RoomDetail(name, topic, avatar)) => {
-                    theop.lock().unwrap().set_room_details(name, topic, avatar);
+                Ok(backend::BKResponse::RoomDetail(key, value)) => {
+                    theop.lock().unwrap().set_room_detail(key, value);
+                },
+                Ok(backend::BKResponse::RoomAvatar(avatar)) => {
+                    theop.lock().unwrap().set_room_avatar(avatar);
                 },
                 Err(_) => { },
             };
