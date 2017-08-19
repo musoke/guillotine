@@ -130,6 +130,7 @@ pub enum BKResponse {
     Name(String),
     Avatar(String),
     Sync,
+    Rooms(HashMap<String, String>),
 }
 
 
@@ -228,18 +229,27 @@ impl Backend {
         Ok(())
     }
 
-    // TODO: first sync should get rooms and next_batch and store this in a config file or
-    // something to get it later. Later syncs should lookup for events and treat all correctly
     pub fn sync(&self) -> Result<(), Error> {
         let s = self.data.lock().unwrap().server_url.clone();
         let token = self.data.lock().unwrap().access_token.clone();
         let since = self.data.lock().unwrap().since.clone();
         let baseu = Url::parse(&s)?;
 
-        let params: String;
+        let mut params: String;
 
         if since.is_empty() {
             params = format!("?full_state=false&timeout=30000&access_token={}", token);
+            params = params + "&filter={\
+                                          \"room\": {\
+                                            \"state\": {\
+                                                \"types\": [\"m.room.*\"],\
+                                                \"not_types\": [\"m.room.member\"]\
+                                            },\
+                                            \"timeline\": {\"limit\":0},\
+                                            \"ephemeral\": {\"types\": []}\
+                                          },\
+                                          \"presence\": {\"types\": []}\
+                                      }";
         } else {
             params = format!("?full_state=false&timeout=30000&access_token={}&since={}", token, since);
         }
@@ -252,27 +262,42 @@ impl Backend {
         get!(url, map,
             |r: JsonValue| {
                 let next_batch = String::from(r["next_batch"].as_str().unwrap_or(""));
+                if since.is_empty() {
+                    let rooms = get_rooms_from_json(r).unwrap();
+                    tx.send(BKResponse::Rooms(rooms)).unwrap();
+                } else {
+                }
+
                 data.lock().unwrap().since = next_batch;
 
-                let rooms = &r["rooms"];
-                let invite = rooms["invite"].as_object().unwrap();
-                let join = rooms["join"].as_object().unwrap();
-                let leave = rooms["leave"].as_object().unwrap();
-
-                for k in join.keys() {
-                    let room = join.get(k).unwrap();
-                    let name = room["state"]["events"].as_array().unwrap().iter().find(|x| x["type"] == "m.room.name");
-                    let n = match name {
-                        None => k.clone(),
-                        Some(o) => String::from(o["content"]["name"].as_str().unwrap()),
-                    };
-                    println!("room {}: {}", k, n);
-                }
                 tx.send(BKResponse::Sync).unwrap();
         });
 
         Ok(())
     }
+}
+
+fn get_rooms_from_json(r: JsonValue) -> Result<HashMap<String, String>, Error> {
+    let rooms = &r["rooms"];
+    // TODO: do something with invite and leave
+    //let invite = rooms["invite"].as_object().ok_or(Error::BackendError)?;
+    //let leave = rooms["leave"].as_object().ok_or(Error::BackendError)?;
+
+    let join = rooms["join"].as_object().ok_or(Error::BackendError)?;
+
+    let mut rooms_map: HashMap<String, String> = HashMap::new();
+    for k in join.keys() {
+        let room = join.get(k).ok_or(Error::BackendError)?;
+        let events = room["state"]["events"].as_array().ok_or(Error::BackendError)?;
+        let name = events.iter().find(|x| x["type"] == "m.room.name");
+        let n = match name {
+            None => k.clone(),
+            Some(o) => String::from(o["content"]["name"].as_str().ok_or(Error::BackendError)?),
+        };
+        rooms_map.insert(k.clone(), n);
+    }
+
+    Ok(rooms_map)
 }
 
 fn get_media(url: &str) -> Result<Vec<u8>, Error> {

@@ -253,6 +253,9 @@ impl App {
                     println!("SYNC");
                     theop.lock().unwrap().sync();
                 },
+                Ok(backend::BKResponse::Rooms(rooms)) => {
+                    println!("Rooms: {:?}", rooms);
+                },
                 Err(_) => { },
             };
 
