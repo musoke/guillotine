@@ -10,6 +10,7 @@ use std::env;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::channel;
 use std::sync::mpsc::{Sender, Receiver};
+use std::collections::HashMap;
 
 use self::gdk_pixbuf::Pixbuf;
 use self::gtk::prelude::*;
@@ -33,6 +34,8 @@ const APP_ID: &'static str = "org.gnome.guillotine";
 struct AppOp {
     gtk_builder: gtk::Builder,
     backend: Backend,
+    rooms: Option<HashMap<String, String>>,
+    active_room: String,
 }
 
 impl AppOp {
@@ -202,6 +205,51 @@ impl AppOp {
     pub fn sync(&self) {
         self.backend.sync().unwrap();
     }
+
+    pub fn set_rooms(&mut self, rooms: HashMap<String, String>) {
+        self.rooms = Some(rooms);
+        let store: gtk::TreeStore = self.gtk_builder.get_object("rooms_tree_store")
+            .expect("Couldn't find rooms_tree_store in ui file.");
+
+        if let Some(ref rs) = self.rooms {
+            for (id, name) in rs {
+                let iter = store.insert_with_values(None, None,
+                    &[0, 1],
+                    &[&name, &id]);
+            }
+        }
+    }
+
+    pub fn set_active_room(&mut self, room: String) {
+        self.active_room = room;
+
+        // getting room details
+        self.backend.get_room_details(self.active_room.clone()).unwrap();
+    }
+
+    pub fn set_room_details(&self, name: String, topic: String, avatar: String) {
+        let image = self.gtk_builder
+            .get_object::<gtk::Image>("room_image")
+            .expect("Can't find room_image in ui file.");
+        let name_label = self.gtk_builder
+            .get_object::<gtk::Label>("room_name")
+            .expect("Can't find room_name in ui file.");
+        let topic_label = self.gtk_builder
+            .get_object::<gtk::Label>("room_topic")
+            .expect("Can't find room_topic in ui file.");
+
+        name_label.set_text(&name);
+        topic_label.set_tooltip_text(&topic[..]);
+        topic_label.set_text(&topic);
+
+        if !avatar.is_empty() {
+            if let Ok(pixbuf) = Pixbuf::new_from_file_at_size(&avatar, 40, 40) {
+                image.set_from_pixbuf(&pixbuf);
+            }
+        } else {
+            image.set_from_stock("image-missing", 40);
+        }
+    }
 }
 
 /// State for the main thread.
@@ -231,6 +279,8 @@ impl App {
             AppOp{
                 gtk_builder: gtk_builder.clone(),
                 backend: Backend::new(tx),
+                rooms: None,
+                active_room: String::from(""),
             }
         ));
 
@@ -254,7 +304,10 @@ impl App {
                     theop.lock().unwrap().sync();
                 },
                 Ok(backend::BKResponse::Rooms(rooms)) => {
-                    println!("Rooms: {:?}", rooms);
+                    theop.lock().unwrap().set_rooms(rooms);
+                },
+                Ok(backend::BKResponse::RoomDetail(name, topic, avatar)) => {
+                    theop.lock().unwrap().set_room_details(name, topic, avatar);
                 },
                 Err(_) => { },
             };
@@ -282,7 +335,7 @@ impl App {
 
             window.set_title("Guillotine");
 
-            let op_c = op.clone();
+            let mut op_c = op.clone();
             window.connect_delete_event(clone!(app => move |_, _| {
                 op_c.lock().unwrap().disconnect();
                 app.quit();
@@ -297,6 +350,18 @@ impl App {
                 .expect("Couldn't find user_menu in ui file.");
 
             user_button.connect_clicked(move |_| user_menu.show_all());
+
+            // room selection
+            let treeview: gtk::TreeView = gtk_builder.get_object("rooms_tree_view")
+                .expect("Couldn't find rooms_tree_view in ui file.");
+
+            op_c = op.clone();
+            treeview.set_activate_on_single_click(true);
+            treeview.connect_row_activated(move |view, path, column| {
+                let iter = view.get_model().unwrap().get_iter(path).unwrap();
+                let id = view.get_model().unwrap().get_value(&iter, 1);
+                op_c.lock().unwrap().set_active_room(id.get().unwrap());
+            });
 
             // Login click
             let login_btn: gtk::Button = gtk_builder.get_object("login_button")

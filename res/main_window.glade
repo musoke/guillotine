@@ -6,6 +6,8 @@
     <columns>
       <!-- column-name name -->
       <column type="gchararray"/>
+      <!-- column-name id -->
+      <column type="gchararray"/>
     </columns>
   </object>
   <object class="GtkApplicationWindow" id="main_window">
@@ -15,29 +17,44 @@
       <object class="GtkPaned">
         <property name="can_focus">False</property>
         <property name="position_set">True</property>
+        <property name="wide_handle">True</property>
         <child>
-          <object class="GtkTreeView" id="rooms_tree_view">
+          <object class="GtkScrolledWindow" id="scrolledwindow1">
             <property name="width_request">200</property>
+            <property name="visible">True</property>
             <property name="can_focus">False</property>
-            <property name="model">rooms_tree_store</property>
-            <property name="headers_visible">False</property>
-            <property name="search_column">0</property>
-            <child internal-child="selection">
-              <object class="GtkTreeSelection"/>
-            </child>
+            <property name="hscrollbar_policy">never</property>
+            <property name="min_content_width">200</property>
+            <property name="propagate_natural_width">True</property>
             <child>
-              <object class="GtkTreeViewColumn">
+              <object class="GtkTreeView" id="rooms_tree_view">
+                <property name="width_request">200</property>
+                <property name="can_focus">False</property>
+                <property name="margin_right">1</property>
+                <property name="model">rooms_tree_store</property>
+                <property name="headers_visible">False</property>
+                <property name="search_column">0</property>
+                <property name="enable_grid_lines">both</property>
+                <child internal-child="selection">
+                  <object class="GtkTreeSelection"/>
+                </child>
                 <child>
-                  <object class="GtkCellRendererText"/>
-                  <attributes>
-                    <attribute name="text">0</attribute>
-                  </attributes>
+                  <object class="GtkTreeViewColumn">
+                    <child>
+                      <object class="GtkCellRendererText">
+                        <property name="ellipsize">end</property>
+                      </object>
+                      <attributes>
+                        <attribute name="text">0</attribute>
+                      </attributes>
+                    </child>
+                  </object>
                 </child>
               </object>
             </child>
           </object>
           <packing>
-            <property name="resize">False</property>
+            <property name="resize">True</property>
             <property name="shrink">False</property>
           </packing>
         </child>
@@ -56,7 +73,7 @@
                     <property name="border_width">4</property>
                     <property name="spacing">8</property>
                     <child>
-                      <object class="GtkImage">
+                      <object class="GtkImage" id="room_image">
                         <property name="can_focus">False</property>
                         <property name="pixel_size">48</property>
                         <property name="icon_name">face-smile</property>
@@ -75,20 +92,26 @@
                         <property name="orientation">vertical</property>
                         <property name="spacing">4</property>
                         <child>
-                          <object class="GtkLabel">
+                          <object class="GtkLabel" id="room_name">
                             <property name="can_focus">False</property>
+                            <property name="halign">start</property>
                             <property name="label" translatable="yes">&lt;Room name&gt;</property>
+                            <attributes>
+                              <attribute name="weight" value="bold"/>
+                            </attributes>
                           </object>
                           <packing>
                             <property name="expand">False</property>
-                            <property name="fill">True</property>
+                            <property name="fill">False</property>
                             <property name="position">0</property>
                           </packing>
                         </child>
                         <child>
-                          <object class="GtkLabel">
+                          <object class="GtkLabel" id="room_topic">
                             <property name="can_focus">False</property>
+                            <property name="halign">start</property>
                             <property name="label" translatable="yes">&lt;Description&gt;</property>
+                            <property name="ellipsize">end</property>
                           </object>
                           <packing>
                             <property name="expand">False</property>
@@ -98,7 +121,7 @@
                         </child>
                       </object>
                       <packing>
-                        <property name="expand">False</property>
+                        <property name="expand">True</property>
                         <property name="fill">True</property>
                         <property name="position">1</property>
                       </packing>
