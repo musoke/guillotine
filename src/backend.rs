@@ -138,6 +138,8 @@ pub enum BKResponse {
 
 #[derive(Debug)]
 pub struct Message {
+    /// the sender
+    pub s: String,
     /// the message type
     pub t: String,
     /// the message body
@@ -353,6 +355,7 @@ impl Backend {
                 for msg in r["chunk"].as_array().unwrap().iter().rev() {
                     println!("messages: {:#?}", msg);
                     let m = Message {
+                        s: String::from(msg["sender"].as_str().unwrap()),
                         t: String::from(msg["content"]["msgtype"].as_str().unwrap()),
                         b: String::from(msg["content"]["body"].as_str().unwrap()),
                         a: msg["age"].as_i64().unwrap(),

@@ -265,14 +265,24 @@ impl AppOp {
     }
 
     pub fn add_room_message(&self, msg: backend::Message) {
+        let s = self.gtk_builder
+            .get_object::<gtk::ScrolledWindow>("messages_scroll")
+            .expect("Can't find message_scroll in ui file.");
         let messages = self.gtk_builder
             .get_object::<gtk::ListBox>("message_list")
             .expect("Can't find message_list in ui file.");
 
         let body = msg.b;
-        let msg = gtk::Label::new(&body[..]);
+        let mut msg = gtk::Label::new(&body[..]);
+        msg.set_line_wrap(true);
+        msg.set_justify(gtk::Justification::Left);
+        msg.set_halign(gtk::Align::Start);
         msg.show();
         messages.add(&msg);
+
+        if let Some(adj) = s.get_vadjustment() {
+            adj.set_value(adj.get_upper());
+        }
     }
 }
 
@@ -309,7 +319,7 @@ impl App {
         ));
 
         let theop = op.clone();
-        gtk::timeout_add(500, move || {
+        gtk::timeout_add(50, move || {
             let recv = rx.try_recv();
             match recv {
                 Ok(backend::BKResponse::Token(uid, _)) => {
