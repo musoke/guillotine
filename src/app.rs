@@ -34,8 +34,8 @@ const APP_ID: &'static str = "org.gnome.guillotine";
 struct AppOp {
     gtk_builder: gtk::Builder,
     backend: Backend,
-    rooms: Option<HashMap<String, String>>,
     active_room: String,
+    members: HashMap<String, backend::Member>,
 }
 
 impl AppOp {
@@ -105,7 +105,7 @@ impl AppOp {
         if let Ok(pixbuf) = Pixbuf::new_from_file_at_size(fname, 20, 20) {
             image.set_from_pixbuf(&pixbuf);
         } else {
-            image.set_from_stock("image-missing", 20);
+            image.set_from_icon_name("image-missing", 2);
         }
 
         self.show_username();
@@ -207,27 +207,38 @@ impl AppOp {
     }
 
     pub fn set_rooms(&mut self, rooms: HashMap<String, String>) {
-        self.rooms = Some(rooms);
         let store: gtk::TreeStore = self.gtk_builder.get_object("rooms_tree_store")
             .expect("Couldn't find rooms_tree_store in ui file.");
 
-        if let Some(ref rs) = self.rooms {
-            for (id, name) in rs {
-                let iter = store.insert_with_values(None, None,
-                    &[0, 1],
-                    &[&name, &id]);
-            }
+        for (id, name) in rooms {
+            let iter = store.insert_with_values(None, None,
+                &[0, 1],
+                &[&name, &id]);
         }
     }
 
     pub fn set_active_room(&mut self, room: String) {
         self.active_room = room;
 
+        let messages = self.gtk_builder
+            .get_object::<gtk::ListBox>("message_list")
+            .expect("Can't find message_list in ui file.");
+        for ch in messages.get_children() {
+            messages.remove(&ch);
+        }
+
+        self.members.clear();
+        let members = self.gtk_builder
+            .get_object::<gtk::ListStore>("members_store")
+            .expect("Can't find members_store in ui file.");
+        members.clear();
+
         // getting room details
         self.backend.get_room_detail(self.active_room.clone(), String::from("m.room.name")).unwrap();
         self.backend.get_room_detail(self.active_room.clone(), String::from("m.room.topic")).unwrap();
         self.backend.get_room_avatar(self.active_room.clone()).unwrap();
         self.backend.get_room_messages(self.active_room.clone()).unwrap();
+        self.backend.get_room_members(self.active_room.clone()).unwrap();
     }
 
     pub fn set_room_detail(&self, key: String, value: String) {
@@ -260,29 +271,101 @@ impl AppOp {
                 image.set_from_pixbuf(&pixbuf);
             }
         } else {
-            image.set_from_stock("image-missing", 40);
+            image.set_from_icon_name("image-missing", 5);
+        }
+    }
+
+    pub fn scroll_down(&self) {
+        let s = self.gtk_builder
+            .get_object::<gtk::ScrolledWindow>("messages_scroll")
+            .expect("Can't find message_scroll in ui file.");
+
+        if let Some(adj) = s.get_vadjustment() {
+            println!("adj: {:?}", adj);
+            adj.set_value(adj.get_upper());
         }
     }
 
     pub fn add_room_message(&self, msg: backend::Message) {
-        let s = self.gtk_builder
-            .get_object::<gtk::ScrolledWindow>("messages_scroll")
-            .expect("Can't find message_scroll in ui file.");
         let messages = self.gtk_builder
             .get_object::<gtk::ListBox>("message_list")
             .expect("Can't find message_list in ui file.");
 
         let body = msg.b;
-        let mut msg = gtk::Label::new(&body[..]);
-        msg.set_line_wrap(true);
-        msg.set_justify(gtk::Justification::Left);
-        msg.set_halign(gtk::Align::Start);
-        msg.show();
-        messages.add(&msg);
+        let sender = msg.s;
 
-        if let Some(adj) = s.get_vadjustment() {
-            adj.set_value(adj.get_upper());
+        let mut msg = gtk::Box::new(gtk::Orientation::Horizontal, 5);
+
+        let mut vert = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let mut label = gtk::Label::new(&body[..]);
+        label.set_line_wrap(true);
+        label.set_justify(gtk::Justification::Left);
+        label.set_halign(gtk::Align::Start);
+        label.set_alignment(0 as f32, 0 as f32);
+
+        let mut fname = sender.clone();
+        let mut avatar_url = String::new();
+        if let Some(m) = self.members.get(&sender) {
+            fname = m.get_alias();
+            avatar_url = m.avatar.clone();
         }
+
+        let avatar = gtk::Image::new_from_icon_name("image-missing", 5);
+
+        if !avatar_url.is_empty() {
+            let a = avatar.clone();
+            let fname = self.backend.get_media_async(avatar_url).unwrap();
+            let mut tries = 0;
+            gtk::timeout_add(50, move || {
+                match Pixbuf::new_from_file_at_size(&fname, 32, 32) {
+                    Ok(pixbuf) => {
+                        a.set_from_pixbuf(&pixbuf);
+                        gtk::Continue(false)
+                    },
+                    Err(err) => {
+                        match tries {
+                            i if i < 200 => gtk::Continue(true),
+                            _ => gtk::Continue(false),
+                        }
+                    }
+                }
+            });
+        }
+
+        let mut username = gtk::Label::new("");
+        username.set_markup(&format!("<span color=\"gray\">{}</span>", fname));
+        username.set_justify(gtk::Justification::Left);
+        username.set_halign(gtk::Align::Start);
+
+        vert.pack_start(&username, false, false, 0);
+        vert.pack_start(&label, true, true, 0);
+
+        msg.pack_start(&avatar, false, true, 5);
+        msg.pack_start(&vert, true, true, 0);
+        msg.show_all();
+
+        messages.add(&msg);
+    }
+
+    pub fn add_room_member(&mut self, m: backend::Member) {
+        if !m.avatar.is_empty() {
+            self.backend.get_member_avatar(m.uid.clone(), m.avatar.clone()).unwrap();
+        }
+
+        let store: gtk::ListStore = self.gtk_builder.get_object("members_store")
+            .expect("Couldn't find members_store in ui file.");
+
+        let name = m.get_alias();
+
+        let iter = store.insert_with_values(None,
+            &[0, 1],
+            &[&name, &(m.uid)]);
+
+        self.members.insert(m.uid.clone(), m);
+    }
+
+    pub fn member_clicked(&self, uid: String) {
+        println!("member clicked: {}, {:?}", uid, self.members.get(&uid));
     }
 }
 
@@ -313,13 +396,13 @@ impl App {
             AppOp{
                 gtk_builder: gtk_builder.clone(),
                 backend: Backend::new(tx),
-                rooms: None,
                 active_room: String::from(""),
+                members: HashMap::new(),
             }
         ));
 
         let theop = op.clone();
-        gtk::timeout_add(50, move || {
+        gtk::timeout_add(300, move || {
             let recv = rx.try_recv();
             match recv {
                 Ok(backend::BKResponse::Token(uid, _)) => {
@@ -348,6 +431,23 @@ impl App {
                 },
                 Ok(backend::BKResponse::RoomMessage(msg)) => {
                     theop.lock().unwrap().add_room_message(msg);
+                    theop.lock().unwrap().scroll_down();
+                },
+                Ok(backend::BKResponse::RoomMessages(msgs)) => {
+                    for msg in msgs {
+                        theop.lock().unwrap().add_room_message(msg);
+                    }
+                    theop.lock().unwrap().scroll_down();
+                },
+                Ok(backend::BKResponse::RoomMember(member)) => {
+                    theop.lock().unwrap().add_room_member(member);
+                },
+                Ok(backend::BKResponse::RoomMembers(members)) => {
+                    for m in members {
+                        theop.lock().unwrap().add_room_member(m);
+                    }
+                },
+                Ok(backend::BKResponse::RoomMemberAvatar(uid, avatar)) => {
                 },
                 Err(_) => { },
             };
@@ -401,6 +501,18 @@ impl App {
                 let iter = view.get_model().unwrap().get_iter(path).unwrap();
                 let id = view.get_model().unwrap().get_value(&iter, 1);
                 op_c.lock().unwrap().set_active_room(id.get().unwrap());
+            });
+
+            // member selection
+            let members: gtk::TreeView = gtk_builder.get_object("members_treeview")
+                .expect("Couldn't find members_treeview in ui file.");
+
+            op_c = op.clone();
+            members.set_activate_on_single_click(true);
+            members.connect_row_activated(move |view, path, column| {
+                let iter = view.get_model().unwrap().get_iter(path).unwrap();
+                let id = view.get_model().unwrap().get_value(&iter, 1);
+                op_c.lock().unwrap().member_clicked(id.get().unwrap());
             });
 
             // Login click

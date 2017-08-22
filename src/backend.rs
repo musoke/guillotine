@@ -134,6 +134,10 @@ pub enum BKResponse {
     RoomDetail(String, String),
     RoomAvatar(String),
     RoomMessage(Message),
+    RoomMessages(Vec<Message>),
+    RoomMember(Member),
+    RoomMembers(Vec<Member>),
+    RoomMemberAvatar(String, String),
 }
 
 #[derive(Debug)]
@@ -146,6 +150,22 @@ pub struct Message {
     pub b: String,
     /// the message age
     pub a: i64,
+}
+
+#[derive(Debug)]
+pub struct Member {
+    pub alias: String,
+    pub uid: String,
+    pub avatar: String,
+}
+
+impl Member {
+    pub fn get_alias(&self) -> String {
+        match self.alias {
+            ref a if a.is_empty() => self.uid.clone(),
+            ref a => a.clone(),
+        }
+    }
 }
 
 
@@ -352,19 +372,100 @@ impl Backend {
         let tx = self.tx.clone();
         get!(url, map,
             |r: JsonValue| {
+                let mut ms: Vec<Message> = vec![];
                 for msg in r["chunk"].as_array().unwrap().iter().rev() {
-                    println!("messages: {:#?}", msg);
+                    //println!("messages: {:#?}", msg);
                     let m = Message {
                         s: String::from(msg["sender"].as_str().unwrap()),
                         t: String::from(msg["content"]["msgtype"].as_str().unwrap()),
                         b: String::from(msg["content"]["body"].as_str().unwrap()),
                         a: msg["age"].as_i64().unwrap(),
                     };
-                    tx.send(BKResponse::RoomMessage(m)).unwrap();
+                    ms.push(m);
+                }
+                tx.send(BKResponse::RoomMessages(ms)).unwrap();
+        });
+
+        Ok(())
+    }
+
+    pub fn get_room_members(&self, roomid: String) -> Result<(), Error> {
+        let s = self.data.lock().unwrap().server_url.clone();
+        let tk = self.data.lock().unwrap().access_token.clone();
+        let baseu = Url::parse(&s)?;
+        let mut url = baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid + "/"))?.join("members")?;
+        url = url.join(&format!("?access_token={}", tk))?;
+        let map: HashMap<String, String> = HashMap::new();
+
+        let tx = self.tx.clone();
+        get!(url, map,
+            |r: JsonValue| {
+                //println!("{:#?}", r);
+                let mut ms: Vec<Member> = vec![];
+                for member in r["chunk"].as_array().unwrap().iter().rev() {
+                    if member["type"].as_str().unwrap() != "m.room.member" {
+                        continue;
+                    }
+
+                    let content = &member["content"];
+                    if content["membership"].as_str().unwrap() != "join" {
+                        continue;
+                    }
+
+                    let m = Member {
+                        alias: String::from(content["displayname"].as_str().unwrap_or("")),
+                        uid: String::from(member["sender"].as_str().unwrap()),
+                        avatar: String::from(content["avatar_url"].as_str().unwrap_or("")),
+                    };
+                    ms.push(m);
+                    if (ms.len() > 20) {
+                        tx.send(BKResponse::RoomMembers(ms)).unwrap();
+                        ms = vec![];
+                    }
+                }
+                if (!ms.is_empty()) {
+                    tx.send(BKResponse::RoomMembers(ms)).unwrap();
                 }
         });
 
         Ok(())
+    }
+
+    pub fn get_member_avatar(&self, memberid: String, avatar_url: String) -> Result<(), Error> {
+        let s = self.data.lock().unwrap().server_url.clone();
+        let baseu = Url::parse(&s)?;
+
+        let tx = self.tx.clone();
+        thread::spawn(move || {
+            let fname = thumb!(baseu, &avatar_url).unwrap();
+            tx.send(BKResponse::RoomMemberAvatar(memberid, fname)).unwrap();
+        });
+
+        Ok(())
+    }
+
+    pub fn get_base_url(&self) -> Result<Url, Error> {
+        let s = self.data.lock().unwrap().server_url.clone();
+        let url = Url::parse(&s)?;
+        Ok(url)
+    }
+
+    pub fn get_media_async(&self, url: String) -> Result<String, Error> {
+        let base = self.get_base_url()?;
+        let xdg_dirs = xdg::BaseDirectories::with_prefix("guillotine").unwrap();
+
+        let re = Regex::new(r"mxc://(?P<server>[^/]+)/(?P<media>.+)")?;
+        let caps = re.captures(&url).ok_or(Error::BackendError)?;
+        let media = String::from(&caps["media"]);
+
+        let fname = String::from(xdg_dirs.place_cache_file(&media)?.to_str().ok_or(Error::BackendError)?);
+
+        let u = url.clone();
+        thread::spawn(move || {
+            thumb!(base, &u).unwrap();
+        });
+
+        Ok(fname)
     }
 }
 
@@ -403,6 +504,8 @@ fn get_media(url: &str) -> Result<Vec<u8>, Error> {
 }
 
 fn dw_media(base: Url, url: &str, thumb: bool, dest: Option<&str>, w: i32, h: i32) -> Result<String, Error> {
+    // TODO, don't download if exists
+
     let xdg_dirs = xdg::BaseDirectories::with_prefix("guillotine").unwrap();
 
     let re = Regex::new(r"mxc://(?P<server>[^/]+)/(?P<media>.+)")?;
