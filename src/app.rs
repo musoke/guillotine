@@ -314,21 +314,22 @@ impl AppOp {
 
         if !avatar_url.is_empty() {
             let a = avatar.clone();
-            let fname = self.backend.get_media_async(avatar_url).unwrap();
-            let mut tries = 0;
+
+            let (tx, rx): (Sender<String>, Receiver<String>) = channel();
+            self.backend.get_media_async(avatar_url, tx).unwrap();
             gtk::timeout_add(50, move || {
-                match Pixbuf::new_from_file_at_size(&fname, 32, 32) {
-                    Ok(pixbuf) => {
-                        a.set_from_pixbuf(&pixbuf);
-                        gtk::Continue(false)
-                    },
-                    Err(err) => {
-                        match tries {
-                            i if i < 200 => gtk::Continue(true),
-                            _ => gtk::Continue(false),
-                        }
-                    }
+                let recv = rx.try_recv();
+
+                if recv.is_err() {
+                    return gtk::Continue(true);
                 }
+
+                let fname = recv.unwrap();
+                if let Ok(pixbuf) = Pixbuf::new_from_file_at_size(&fname, 32, 32) {
+                    a.set_from_pixbuf(&pixbuf);
+                }
+
+                gtk::Continue(false)
             });
         }
 

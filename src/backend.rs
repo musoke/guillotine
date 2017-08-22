@@ -450,22 +450,16 @@ impl Backend {
         Ok(url)
     }
 
-    pub fn get_media_async(&self, url: String) -> Result<String, Error> {
+    pub fn get_media_async(&self, url: String, tx: Sender<String>) -> Result<(), Error> {
         let base = self.get_base_url()?;
-        let xdg_dirs = xdg::BaseDirectories::with_prefix("guillotine").unwrap();
-
-        let re = Regex::new(r"mxc://(?P<server>[^/]+)/(?P<media>.+)")?;
-        let caps = re.captures(&url).ok_or(Error::BackendError)?;
-        let media = String::from(&caps["media"]);
-
-        let fname = String::from(xdg_dirs.place_cache_file(&media)?.to_str().ok_or(Error::BackendError)?);
 
         let u = url.clone();
         thread::spawn(move || {
-            thumb!(base, &u).unwrap();
+            let fname = thumb!(base, &u).unwrap();
+            tx.send(fname).unwrap();
         });
 
-        Ok(fname)
+        Ok(())
     }
 }
 
