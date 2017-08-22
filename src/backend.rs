@@ -229,9 +229,9 @@ impl Backend {
     }
 
     pub fn get_username(&self) -> Result<(), Error> {
-        let s = self.data.lock().unwrap().server_url.clone();
+        let baseu = self.get_base_url()?;
         let id = self.data.lock().unwrap().user_id.clone() + "/";
-        let url = Url::parse(&s)?.join("/_matrix/client/r0/profile/")?.join(&id)?.join("displayname")?;
+        let url = baseu.join("/_matrix/client/r0/profile/")?.join(&id)?.join("displayname")?;
         let map: HashMap<String, String> = HashMap::new();
 
         let tx = self.tx.clone();
@@ -246,9 +246,8 @@ impl Backend {
     }
 
     pub fn get_avatar(&self) -> Result<(), Error> {
-        let s = self.data.lock().unwrap().server_url.clone();
+        let baseu = self.get_base_url()?;
         let id = self.data.lock().unwrap().user_id.clone() + "/";
-        let baseu = Url::parse(&s)?;
         let url = baseu.join("/_matrix/client/r0/profile/")?.join(&id)?.join("avatar_url")?;
         let map: HashMap<String, String> = HashMap::new();
 
@@ -265,10 +264,9 @@ impl Backend {
     }
 
     pub fn sync(&self) -> Result<(), Error> {
-        let s = self.data.lock().unwrap().server_url.clone();
+        let baseu = self.get_base_url()?;
         let token = self.data.lock().unwrap().access_token.clone();
         let since = self.data.lock().unwrap().since.clone();
-        let baseu = Url::parse(&s)?;
 
         let mut params: String;
 
@@ -313,9 +311,8 @@ impl Backend {
     }
 
     pub fn get_room_detail(&self, roomid: String, key: String) -> Result<(), Error> {
-        let s = self.data.lock().unwrap().server_url.clone();
+        let baseu = self.get_base_url()?;
         let tk = self.data.lock().unwrap().access_token.clone();
-        let baseu = Url::parse(&s)?;
         let mut url = baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid + "/"))?;
         url = url.join(&format!("state/{}", key))?;
         url = url.join(&format!("?access_token={}", tk))?;
@@ -339,9 +336,8 @@ impl Backend {
     }
 
     pub fn get_room_avatar(&self, roomid: String) -> Result<(), Error> {
-        let s = self.data.lock().unwrap().server_url.clone();
+        let baseu = self.get_base_url()?;
         let tk = self.data.lock().unwrap().access_token.clone();
-        let baseu = Url::parse(&s)?;
         let mut url = baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid + "/"))?.join("state/m.room.avatar")?;
         url = url.join(&format!("?access_token={}", tk))?;
         let map: HashMap<String, String> = HashMap::new();
@@ -362,9 +358,8 @@ impl Backend {
     }
 
     pub fn get_room_messages(&self, roomid: String) -> Result<(), Error> {
-        let s = self.data.lock().unwrap().server_url.clone();
+        let baseu = self.get_base_url()?;
         let tk = self.data.lock().unwrap().access_token.clone();
-        let baseu = Url::parse(&s)?;
         let mut url = baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid + "/"))?.join("messages")?;
         url = url.join(&format!("?access_token={}&dir=b&limit=40", tk))?;
         let map: HashMap<String, String> = HashMap::new();
@@ -390,9 +385,8 @@ impl Backend {
     }
 
     pub fn get_room_members(&self, roomid: String) -> Result<(), Error> {
-        let s = self.data.lock().unwrap().server_url.clone();
+        let baseu = self.get_base_url()?;
         let tk = self.data.lock().unwrap().access_token.clone();
-        let baseu = Url::parse(&s)?;
         let mut url = baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid + "/"))?.join("members")?;
         url = url.join(&format!("?access_token={}", tk))?;
         let map: HashMap<String, String> = HashMap::new();
@@ -432,8 +426,7 @@ impl Backend {
     }
 
     pub fn get_member_avatar(&self, memberid: String, avatar_url: String) -> Result<(), Error> {
-        let s = self.data.lock().unwrap().server_url.clone();
-        let baseu = Url::parse(&s)?;
+        let baseu = self.get_base_url()?;
 
         let tx = self.tx.clone();
         thread::spawn(move || {
