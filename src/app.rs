@@ -451,6 +451,10 @@ impl AppOp {
     pub fn member_clicked(&self, uid: String) {
         println!("member clicked: {}, {:?}", uid, self.members.get(&uid));
     }
+
+    pub fn send_message(&self, msg: String) {
+        self.backend.send_msg(self.active_room.clone(), msg).unwrap();
+    }
 }
 
 /// State for the main thread.
@@ -527,8 +531,8 @@ impl App {
                     }
                     theop.lock().unwrap().get_room_messages();
                 },
-                Ok(backend::BKResponse::RoomMemberAvatar(_, _)) => {
-                },
+                Ok(backend::BKResponse::RoomMemberAvatar(_, _)) => { },
+                Ok(backend::BKResponse::SendMsg) => { },
                 // errors
                 Ok(err) => {
                     println!("Query error: {:?}", err);
@@ -573,6 +577,32 @@ impl App {
 
         self.connect_room_treeview();
         self.connect_member_treeview();
+
+        self.connect_send();
+    }
+
+    fn connect_send(&self) {
+        let send_button: gtk::ToolButton = self.gtk_builder.get_object("send_button")
+            .expect("Couldn't find send_button in ui file.");
+        let msg_entry: gtk::Entry = self.gtk_builder.get_object("msg_entry")
+            .expect("Couldn't find msg_entry in ui file.");
+
+        let entry = msg_entry.clone();
+        let mut op = self.op.clone();
+        send_button.connect_clicked(move |btn| {
+            if let Some(text) = entry.get_text() {
+                op.lock().unwrap().send_message(text);
+                entry.set_text("");
+            }
+        });
+
+        op = self.op.clone();
+        msg_entry.connect_activate(move |entry| {
+            if let Some(text) = entry.get_text() {
+                op.lock().unwrap().send_message(text);
+                entry.set_text("");
+            }
+        });
     }
 
     fn connect_user_button(&self) {

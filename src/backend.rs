@@ -112,6 +112,7 @@ pub struct BackendData {
     access_token: String,
     server_url: String,
     since: String,
+    msgid: i32,
 }
 
 pub struct Backend {
@@ -131,6 +132,7 @@ pub enum BKResponse {
     RoomMessages(Vec<Message>),
     RoomMembers(Vec<Member>),
     RoomMemberAvatar(String, String),
+    SendMsg,
 
     //errors
     UserNameError(Error),
@@ -143,6 +145,7 @@ pub enum BKResponse {
     RoomMessagesError(Error),
     RoomMembersError(Error),
     RoomMemberAvatarError(Error),
+    SendMsgError(Error),
 }
 
 #[derive(Debug)]
@@ -177,6 +180,7 @@ impl Backend {
                     access_token: String::from(""),
                     server_url: String::from("https://matrix.org"),
                     since: String::from(""),
+                    msgid: 1,
         };
         Backend { tx: tx, data: Arc::new(Mutex::new(data)) }
     }
@@ -486,6 +490,37 @@ impl Backend {
                 Err(_) => { tx.send(String::from("")).unwrap(); }
             };
         });
+
+        Ok(())
+    }
+
+    pub fn send_msg(&self, roomid: String, msg: String) -> Result<(), Error> {
+        let baseu = self.get_base_url()?;
+        let tk = self.data.lock().unwrap().access_token.clone();
+        let msgid;
+
+        {
+            let mut data = self.data.lock().unwrap();
+            data.msgid = data.msgid + 1;
+            msgid = data.msgid;
+        }
+
+        let mut url = baseu.join("/_matrix/client/r0/rooms/")?;
+        url = url.join(&(roomid + "/"))?.join("send/m.room.message/")?;
+        url = url.join(&format!("{}", msgid))?;
+        url = url.join(&format!("?access_token={}", tk))?;
+
+        let mut attrs: HashMap<String, String> = HashMap::new();
+        attrs.insert(String::from("body"), msg);
+        attrs.insert(String::from("msgtype"), String::from("m.text"));
+
+        let tx = self.tx.clone();
+        query!("put", &url, &attrs,
+            move |r: JsonValue| {
+                tx.send(BKResponse::SendMsg).unwrap();
+            },
+            |err| { tx.send(BKResponse::SendMsgError(err)).unwrap(); }
+        );
 
         Ok(())
     }
