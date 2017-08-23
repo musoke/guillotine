@@ -430,9 +430,12 @@ impl AppOp {
             .get_object::<gtk::ListBox>("message_list")
             .expect("Can't find message_list in ui file.");
 
-        let msg = self.build_room_msg(msg);
-
-        messages.add(&msg);
+        if msg.room == self.active_room {
+            let msg = self.build_room_msg(msg);
+            messages.add(&msg);
+        } else {
+            // TODO: update the unread messages count in room list
+        }
     }
 
     pub fn add_room_member(&mut self, m: backend::Member) {
@@ -490,7 +493,7 @@ impl App {
         ));
 
         let theop = op.clone();
-        gtk::timeout_add(300, move || {
+        gtk::timeout_add(50, move || {
             let recv = rx.try_recv();
             match recv {
                 Ok(backend::BKResponse::Token(uid, _)) => {

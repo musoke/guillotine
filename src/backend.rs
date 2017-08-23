@@ -154,6 +154,7 @@ pub struct Message {
     pub mtype: String,
     pub body: String,
     pub date: DateTime<Local>,
+    pub room: String,
 }
 
 #[derive(Debug)]
@@ -307,7 +308,12 @@ impl Backend {
                     let rooms = get_rooms_from_json(r, &userid).unwrap();
                     tx.send(BKResponse::Rooms(rooms)).unwrap();
                 } else {
+                    match get_rooms_timeline_from_json(r) {
+                        Ok(msgs) => tx.send(BKResponse::RoomMessages(msgs)).unwrap(),
+                        Err(err) => tx.send(BKResponse::RoomMessagesError(err)).unwrap(),
+                    }
                     // TODO: treat all events
+                    //println!("sync: {:#?}", r);
                 }
 
                 data.lock().unwrap().since = next_batch;
@@ -378,7 +384,7 @@ impl Backend {
     pub fn get_room_messages(&self, roomid: String) -> Result<(), Error> {
         let baseu = self.get_base_url()?;
         let tk = self.data.lock().unwrap().access_token.clone();
-        let mut url = baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid + "/"))?.join("messages")?;
+        let mut url = baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid.clone() + "/"))?.join("messages")?;
         url = url.join(&format!("?access_token={}&dir=b&limit=20", tk))?;
 
         let tx = self.tx.clone();
@@ -397,6 +403,7 @@ impl Backend {
                         mtype: String::from(msg["content"]["msgtype"].as_str().unwrap()),
                         body: String::from(msg["content"]["body"].as_str().unwrap()),
                         date: age_to_datetime(age),
+                        room: roomid.clone(),
                     };
                     ms.push(m);
                 }
@@ -542,6 +549,37 @@ fn get_rooms_from_json(r: JsonValue, userid: &str) -> Result<HashMap<String, Str
     }
 
     Ok(rooms_map)
+}
+
+fn get_rooms_timeline_from_json(r: JsonValue) -> Result<Vec<Message>, Error> {
+    let rooms = &r["rooms"];
+    let join = rooms["join"].as_object().ok_or(Error::BackendError)?;
+
+    let mut msgs: Vec<Message> = vec![];
+    for k in join.keys() {
+        let room = join.get(k).ok_or(Error::BackendError)?;
+        let timeline = room["timeline"]["events"].as_array();
+        if timeline.is_none() {
+            return Ok(msgs);
+        }
+
+        let events = timeline.unwrap().iter()
+                      .filter(|x| x["type"] == "m.room.message");
+
+        for ev in events {
+            let age = ev["age"].as_i64().unwrap_or(0);
+            let msg = Message {
+                sender: String::from(ev["sender"].as_str().unwrap()),
+                mtype: String::from(ev["content"]["msgtype"].as_str().unwrap()),
+                body: String::from(ev["content"]["body"].as_str().unwrap()),
+                date: age_to_datetime(age),
+                room: k.clone(),
+            };
+            msgs.push(msg);
+        }
+    }
+
+    Ok(msgs)
 }
 
 fn get_media(url: &str) -> Result<Vec<u8>, Error> {
