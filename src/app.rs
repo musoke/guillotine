@@ -7,7 +7,6 @@ extern crate secret_service;
 use self::secret_service::SecretService;
 use self::secret_service::EncryptionType;
 
-use std::env;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::channel;
 use std::sync::mpsc::{Sender, Receiver};
@@ -215,7 +214,7 @@ impl AppOp {
             .expect("Couldn't find rooms_tree_store in ui file.");
 
         for (id, name) in rooms {
-            let iter = store.insert_with_values(None, None,
+            store.insert_with_values(None, None,
                 &[0, 1],
                 &[&name, &id]);
         }
@@ -325,7 +324,7 @@ impl AppOp {
             None => String::from(sender)
         };
 
-        let mut username = gtk::Label::new("");
+        let username = gtk::Label::new("");
         username.set_markup(&format!("<b>{}</b>", uname));
         username.set_justify(gtk::Justification::Left);
         username.set_halign(gtk::Align::Start);
@@ -334,7 +333,7 @@ impl AppOp {
     }
 
     fn build_room_msg_body(&self, body: &str) -> gtk::Label {
-        let mut msg = gtk::Label::new(body);
+        let msg = gtk::Label::new(body);
         msg.set_line_wrap(true);
         msg.set_justify(gtk::Justification::Left);
         msg.set_halign(gtk::Align::Start);
@@ -346,7 +345,7 @@ impl AppOp {
     fn build_room_msg_date(&self, dt: &DateTime<Local>) -> gtk::Label {
         let d = dt.format("%d/%b/%y %H:%M").to_string();
 
-        let mut date = gtk::Label::new("");
+        let date = gtk::Label::new("");
         date.set_markup(&format!("<span alpha=\"60%\">{}</span>", d));
         date.set_line_wrap(true);
         date.set_justify(gtk::Justification::Right);
@@ -361,7 +360,7 @@ impl AppOp {
         // +----------+------+
         // | username | date |
         // +----------+------+
-        let mut info = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        let info = gtk::Box::new(gtk::Orientation::Horizontal, 0);
 
         let username = self.build_room_msg_username(&msg.sender);
         let date = self.build_room_msg_date(&msg.date);
@@ -379,7 +378,7 @@ impl AppOp {
         // +------+
         // | body |
         // +------+
-        let mut content = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
 
         let info = self.build_room_msg_info(msg);
         let body = self.build_room_msg_body(&msg.body);
@@ -398,7 +397,7 @@ impl AppOp {
         // +--------+---------+
         // | avatar | content |
         // +--------+---------+
-        let mut msg_widget = gtk::Box::new(gtk::Orientation::Horizontal, 5);
+        let msg_widget = gtk::Box::new(gtk::Orientation::Horizontal, 5);
         let content = self.build_room_msg_content(&msg);
 
         msg_widget.pack_start(&avatar, false, true, 5);
@@ -429,7 +428,7 @@ impl AppOp {
 
         let name = m.get_alias();
 
-        let iter = store.insert_with_values(None,
+        store.insert_with_values(None,
             &[0, 1],
             &[&name, &(m.uid)]);
 
@@ -501,25 +500,18 @@ impl App {
                 Ok(backend::BKResponse::RoomAvatar(avatar)) => {
                     theop.lock().unwrap().set_room_avatar(avatar);
                 },
-                Ok(backend::BKResponse::RoomMessage(msg)) => {
-                    theop.lock().unwrap().add_room_message(msg);
-                    theop.lock().unwrap().scroll_down();
-                },
                 Ok(backend::BKResponse::RoomMessages(msgs)) => {
                     for msg in msgs {
                         theop.lock().unwrap().add_room_message(msg);
                     }
                     theop.lock().unwrap().scroll_down();
                 },
-                Ok(backend::BKResponse::RoomMember(member)) => {
-                    theop.lock().unwrap().add_room_member(member);
-                },
                 Ok(backend::BKResponse::RoomMembers(members)) => {
                     for m in members {
                         theop.lock().unwrap().add_room_member(m);
                     }
                 },
-                Ok(backend::BKResponse::RoomMemberAvatar(uid, avatar)) => {
+                Ok(backend::BKResponse::RoomMemberAvatar(_, _)) => {
                 },
                 Err(_) => { },
             };
@@ -590,7 +582,7 @@ impl App {
 
         let op = self.op.clone();
         treeview.set_activate_on_single_click(true);
-        treeview.connect_row_activated(move |view, path, column| {
+        treeview.connect_row_activated(move |view, path, _| {
             let iter = view.get_model().unwrap().get_iter(path).unwrap();
             let id = view.get_model().unwrap().get_value(&iter, 1);
             op.lock().unwrap().set_active_room(id.get().unwrap());
@@ -604,7 +596,7 @@ impl App {
 
         let op = self.op.clone();
         members.set_activate_on_single_click(true);
-        members.connect_row_activated(move |view, path, column| {
+        members.connect_row_activated(move |view, path, _| {
             let iter = view.get_model().unwrap().get_iter(path).unwrap();
             let id = view.get_model().unwrap().get_value(&iter, 1);
             op.lock().unwrap().member_clicked(id.get().unwrap());

@@ -80,6 +80,7 @@ macro_rules! query {
     };
 }
 
+#[allow(unused_macros)]
 macro_rules! media {
     ($base: expr, $url: expr, $dest: expr) => {
         dw_media($base, $url, false, $dest, 0, 0)
@@ -138,9 +139,7 @@ pub enum BKResponse {
     Rooms(HashMap<String, String>),
     RoomDetail(String, String),
     RoomAvatar(String),
-    RoomMessage(Message),
     RoomMessages(Vec<Message>),
-    RoomMember(Member),
     RoomMembers(Vec<Member>),
     RoomMemberAvatar(String, String),
 }
@@ -415,12 +414,12 @@ impl Backend {
                         avatar: String::from(content["avatar_url"].as_str().unwrap_or("")),
                     };
                     ms.push(m);
-                    if (ms.len() > 20) {
+                    if ms.len() > 20 {
                         tx.send(BKResponse::RoomMembers(ms)).unwrap();
                         ms = vec![];
                     }
                 }
-                if (!ms.is_empty()) {
+                if !ms.is_empty() {
                     tx.send(BKResponse::RoomMembers(ms)).unwrap();
                 }
         });
