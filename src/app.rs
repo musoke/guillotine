@@ -227,6 +227,10 @@ impl AppOp {
         }
     }
 
+    pub fn get_room_messages(&self) {
+        self.backend.get_room_messages(self.active_room.clone()).unwrap();
+    }
+
     pub fn set_active_room(&mut self, room: String, name: String) {
         self.active_room = room;
 
@@ -251,7 +255,6 @@ impl AppOp {
         // getting room details
         self.backend.get_room_detail(self.active_room.clone(), String::from("m.room.topic")).unwrap();
         self.backend.get_room_avatar(self.active_room.clone()).unwrap();
-        self.backend.get_room_messages(self.active_room.clone()).unwrap();
         self.backend.get_room_members(self.active_room.clone()).unwrap();
     }
 
@@ -516,6 +519,7 @@ impl App {
                     for m in ms {
                         theop.lock().unwrap().add_room_member(m);
                     }
+                    theop.lock().unwrap().get_room_messages();
                 },
                 Ok(backend::BKResponse::RoomMemberAvatar(_, _)) => {
                 },

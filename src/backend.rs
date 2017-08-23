@@ -431,14 +431,8 @@ impl Backend {
                         avatar: String::from(content["avatar_url"].as_str().unwrap_or("")),
                     };
                     ms.push(m);
-                    if ms.len() > 20 {
-                        tx.send(BKResponse::RoomMembers(ms)).unwrap();
-                        ms = vec![];
-                    }
                 }
-                if !ms.is_empty() {
-                    tx.send(BKResponse::RoomMembers(ms)).unwrap();
-                }
+                tx.send(BKResponse::RoomMembers(ms)).unwrap();
             },
             |err| { tx.send(BKResponse::RoomMembersError(err)).unwrap() }
         );
