@@ -220,10 +220,20 @@ impl AppOp {
 
         array.sort_by(|x, y| x.0.to_lowercase().cmp(&y.0.to_lowercase()));
 
+        let mut default: Option<(String, String)> = None;
+
         for v in array {
+            if default.is_none() {
+                default = Some((v.0.clone(), v.1.clone()));
+            }
+
             store.insert_with_values(None, None,
                 &[0, 1],
                 &[&v.0, &v.1]);
+        }
+
+        if let Some(def) = default {
+            self.set_active_room(def.1, def.0);
         }
     }
 
