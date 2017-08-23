@@ -12,6 +12,7 @@ use std::sync::mpsc::channel;
 use std::sync::mpsc::{Sender, Receiver};
 use std::collections::HashMap;
 
+use self::gio::ApplicationExt;
 use self::gdk_pixbuf::Pixbuf;
 use self::gtk::prelude::*;
 
@@ -467,76 +468,82 @@ impl App {
     }
 
     pub fn connect_gtk(&self) {
-        let gtk_builder = self.gtk_builder.clone();
+        // Set up shutdown callback
+        let window: gtk::Window = self.gtk_builder.get_object("main_window")
+            .expect("Couldn't find main_window in ui file.");
+
+        window.set_title("Guillotine");
+        window.show_all();
+
         let op = self.op.clone();
-        self.gtk_app.connect_activate(move |app| {
-            // Set up shutdown callback
-            let window: gtk::Window = gtk_builder.get_object("main_window")
-                .expect("Couldn't find main_window in ui file.");
+        window.connect_delete_event(move |_, _| {
+            op.lock().unwrap().disconnect();
+            gtk::main_quit();
+            Inhibit(false)
+        });
 
-            window.set_title("Guillotine");
+        self.gtk_app.connect_startup(move |app| {
+            window.set_application(app);
+        });
 
-            let mut op_c = op.clone();
-            window.connect_delete_event(clone!(app => move |_, _| {
-                op_c.lock().unwrap().disconnect();
-                app.quit();
-                Inhibit(false)
-            }));
+        self.connect_user_button();
+        self.connect_login_button();
 
-            // Set up user popover
-            let user_button: gtk::Button = gtk_builder.get_object("user_button")
-                .expect("Couldn't find user_button in ui file.");
+        self.connect_room_treeview();
+        self.connect_member_treeview();
+    }
 
-            let user_menu: gtk::Popover = gtk_builder.get_object("user_menu")
-                .expect("Couldn't find user_menu in ui file.");
+    fn connect_user_button(&self) {
+        // Set up user popover
+        let user_button: gtk::Button = self.gtk_builder.get_object("user_button")
+            .expect("Couldn't find user_button in ui file.");
 
-            user_button.connect_clicked(move |_| user_menu.show_all());
+        let user_menu: gtk::Popover = self.gtk_builder.get_object("user_menu")
+            .expect("Couldn't find user_menu in ui file.");
 
-            // room selection
-            let treeview: gtk::TreeView = gtk_builder.get_object("rooms_tree_view")
-                .expect("Couldn't find rooms_tree_view in ui file.");
+        user_button.connect_clicked(move |_| user_menu.show_all());
+    }
 
-            op_c = op.clone();
-            treeview.set_activate_on_single_click(true);
-            treeview.connect_row_activated(move |view, path, column| {
-                let iter = view.get_model().unwrap().get_iter(path).unwrap();
-                let id = view.get_model().unwrap().get_value(&iter, 1);
-                op_c.lock().unwrap().set_active_room(id.get().unwrap());
-            });
+    fn connect_login_button(&self) {
+        // Login click
+        let login_btn: gtk::Button = self.gtk_builder.get_object("login_button")
+            .expect("Couldn't find login_button in ui file.");
 
-            // member selection
-            let members: gtk::TreeView = gtk_builder.get_object("members_treeview")
-                .expect("Couldn't find members_treeview in ui file.");
+        let op = self.op.clone();
+        login_btn.connect_clicked(move |_| op.lock().unwrap().login());
+    }
 
-            op_c = op.clone();
-            members.set_activate_on_single_click(true);
-            members.connect_row_activated(move |view, path, column| {
-                let iter = view.get_model().unwrap().get_iter(path).unwrap();
-                let id = view.get_model().unwrap().get_value(&iter, 1);
-                op_c.lock().unwrap().member_clicked(id.get().unwrap());
-            });
+    fn connect_room_treeview(&self) {
+        // room selection
+        let treeview: gtk::TreeView = self.gtk_builder.get_object("rooms_tree_view")
+            .expect("Couldn't find rooms_tree_view in ui file.");
 
-            // Login click
-            let login_btn: gtk::Button = gtk_builder.get_object("login_button")
-                .expect("Couldn't find login_button in ui file.");
-            let op_c = op.clone();
-            login_btn.connect_clicked(move |_| op_c.lock().unwrap().login());
+        let op = self.op.clone();
+        treeview.set_activate_on_single_click(true);
+        treeview.connect_row_activated(move |view, path, column| {
+            let iter = view.get_model().unwrap().get_iter(path).unwrap();
+            let id = view.get_model().unwrap().get_value(&iter, 1);
+            op.lock().unwrap().set_active_room(id.get().unwrap());
+        });
+    }
 
-            // Associate window with the Application and show it
-            window.set_application(Some(app));
-            window.show_all();
+    fn connect_member_treeview(&self) {
+        // member selection
+        let members: gtk::TreeView = self.gtk_builder.get_object("members_treeview")
+            .expect("Couldn't find members_treeview in ui file.");
+
+        let op = self.op.clone();
+        members.set_activate_on_single_click(true);
+        members.connect_row_activated(move |view, path, column| {
+            let iter = view.get_model().unwrap().get_iter(path).unwrap();
+            let id = view.get_model().unwrap().get_value(&iter, 1);
+            op.lock().unwrap().member_clicked(id.get().unwrap());
         });
     }
 
     pub fn run(self) {
-        // Convert the args to a Vec<&str>. Application::run requires argv as &[&str]
-        // and envd::args() returns an iterator of Strings.
-        let args = env::args().collect::<Vec<_>>();
-        let args_refs = args.iter().map(|x| &x[..]).collect::<Vec<_>>();
-
         self.op.lock().unwrap().init();
 
-        // Run the main loop.
-        self.gtk_app.run(args_refs.len() as i32, &args_refs);
+        gtk::main();
     }
 }
