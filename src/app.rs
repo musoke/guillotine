@@ -213,10 +213,17 @@ impl AppOp {
         let store: gtk::TreeStore = self.gtk_builder.get_object("rooms_tree_store")
             .expect("Couldn't find rooms_tree_store in ui file.");
 
+        let mut array: Vec<(String, String)> = vec![];
         for (id, name) in rooms {
+            array.push((name, id));
+        }
+
+        array.sort_by(|x, y| x.0.to_lowercase().cmp(&y.0.to_lowercase()));
+
+        for v in array {
             store.insert_with_values(None, None,
                 &[0, 1],
-                &[&name, &id]);
+                &[&v.0, &v.1]);
         }
     }
 
