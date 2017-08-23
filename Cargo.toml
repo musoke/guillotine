@@ -19,3 +19,7 @@ xdg = "2.1.0"
 [dependencies.gtk]
 features = ["v3_22"]
 version = "0.2.0"
+
+[dependencies.cairo-rs]
+version = "0.2.0"
+features = ["png"]

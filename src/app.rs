@@ -294,30 +294,23 @@ impl AppOp {
     }
 
     fn build_room_msg_avatar(&self, sender: &str) -> gtk::Image {
-        let avatar_url = match self.members.get(sender) {
-            Some(m) => m.avatar.clone(),
-            None => String::new()
-        };
-
         let avatar = gtk::Image::new_from_icon_name("image-missing", 5);
+        let a = avatar.clone();
 
-        if !avatar_url.is_empty() {
-            let a = avatar.clone();
-
-            let (tx, rx): (Sender<String>, Receiver<String>) = channel();
-            self.backend.get_media_async(avatar_url, tx).unwrap();
-            gtk::timeout_add(50, move || {
-                match rx.try_recv() {
-                    Err(_) => gtk::Continue(true),
-                    Ok(fname) => {
-                        if let Ok(pixbuf) = Pixbuf::new_from_file_at_size(&fname, 32, 32) {
-                            a.set_from_pixbuf(&pixbuf);
-                        }
-                        gtk::Continue(false)
+        let (tx, rx): (Sender<String>, Receiver<String>) = channel();
+        self.backend.get_avatar_async(sender, tx).unwrap();
+        gtk::timeout_add(50, move || {
+            match rx.try_recv() {
+                Err(_) => gtk::Continue(true),
+                Ok(fname) => {
+                    if let Ok(pixbuf) = Pixbuf::new_from_file_at_size(&fname, 32, 32) {
+                        a.set_from_pixbuf(&pixbuf);
                     }
+                    gtk::Continue(false)
                 }
-            });
-        }
+            }
+        });
+        avatar.set_alignment(0.5, 0.);
 
         avatar
     }
@@ -404,7 +397,7 @@ impl AppOp {
         let msg_widget = gtk::Box::new(gtk::Orientation::Horizontal, 5);
         let content = self.build_room_msg_content(&msg);
 
-        msg_widget.pack_start(&avatar, false, true, 5);
+        msg_widget.pack_start(&avatar, false, false, 5);
         msg_widget.pack_start(&content, true, true, 0);
 
         msg_widget.show_all();

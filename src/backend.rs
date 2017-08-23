@@ -5,6 +5,7 @@ extern crate xdg;
 extern crate serde_json;
 extern crate chrono;
 extern crate time;
+extern crate cairo;
 
 use self::regex::Regex;
 
@@ -20,6 +21,9 @@ use std::io::Read;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io;
+
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 use self::chrono::prelude::*;
 use self::time::Duration;
@@ -100,6 +104,8 @@ impl From<reqwest::Error> for Error {
 derror!(url::ParseError, Error::BackendError);
 derror!(io::Error, Error::BackendError);
 derror!(regex::Error, Error::BackendError);
+derror!(cairo::Status, Error::BackendError);
+derror!(cairo::IoError, Error::BackendError);
 
 pub struct BackendData {
     user_id: String,
@@ -339,22 +345,22 @@ impl Backend {
     pub fn get_room_avatar(&self, roomid: String) -> Result<(), Error> {
         let baseu = self.get_base_url()?;
         let tk = self.data.lock().unwrap().access_token.clone();
-        let roomu = baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid + "/"))?;
+        let userid = self.data.lock().unwrap().user_id.clone();
+        let roomu = baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid.clone() + "/"))?;
         let mut url = roomu.join("state/m.room.avatar")?;
         url = url.join(&format!("?access_token={}", tk))?;
 
         let tx = self.tx.clone();
         get!(&url,
             |r: JsonValue| {
-                let mut avatar = String::from("");
+                let avatar;
 
                 match r["url"].as_str() {
                     Some(u) => {
-                        avatar = thumb!(&baseu, u).unwrap();
+                        avatar = thumb!(&baseu, u).unwrap_or(String::from(""));
                     },
                     None => {
-                        // TODO: use identicon API
-                        // /_matrix/media/v1/identicon/$ident
+                        avatar = get_room_avatar(&baseu, &tk, &userid, &roomid).unwrap_or(String::from(""));
                     }
                 }
                 tx.send(BKResponse::RoomAvatar(avatar)).unwrap();
@@ -472,6 +478,20 @@ impl Backend {
 
         Ok(())
     }
+
+    pub fn get_avatar_async(&self, uid: &str, tx: Sender<String>) -> Result<(), Error> {
+        let baseu = self.get_base_url()?;
+
+        let u = String::from(uid);
+        thread::spawn(move || {
+            match get_user_avatar(&baseu, &u) {
+                Ok(fname) => { tx.send(fname).unwrap(); },
+                Err(_) => { tx.send(String::from("")).unwrap(); }
+            };
+        });
+
+        Ok(())
+    }
 }
 
 fn get_rooms_from_json(r: JsonValue, userid: &str) -> Result<HashMap<String, String>, Error> {
@@ -568,17 +588,22 @@ fn json_q(method: &str, url: &Url, attrs: &HashMap<String, String>) -> Result<Js
 }
 
 pub fn get_user_avatar(baseu: &Url, userid: &str) -> Result<String, Error> {
-    let id = format!("{}/", userid);
-    let url = baseu.join("/_matrix/client/r0/profile/")?.join(&id)?.join("avatar_url")?;
+    let url = baseu.join("/_matrix/client/r0/profile/")?.join(userid)?;
     let attrs: HashMap<String, String> = HashMap::new();
 
     match json_q("get", &url, &attrs) {
         Ok(js) => {
-            let url = String::from(js["avatar_url"].as_str().unwrap_or(""));
-            let fname = thumb!(baseu, &url)?;
-            Ok(fname)
+            match js["avatar_url"].as_str() {
+                Some(url) => Ok(thumb!(baseu, &url)?),
+                None => {
+                    let name = js["displayname"].as_str().unwrap_or("@");
+                    Ok(draw_identicon(userid, String::from(name))?)
+                },
+            }
         },
-        Err(_) => { Err(Error::BackendError) }
+        Err(_) => {
+            Ok(draw_identicon(userid, String::from(&userid[1..2]))?)
+        }
     }
 }
 
@@ -592,14 +617,91 @@ fn get_room_st(base: &Url, tk: &str, roomid: &str) -> Result<JsonValue, Error> {
 }
 
 fn get_room_avatar(base: &Url, tk: &str, userid: &str, roomid: &str) -> Result<String, Error> {
-    Ok(String::from("TODO"))
+    let st = get_room_st(base, tk, roomid)?;
+    let events = st.as_array().ok_or(Error::BackendError)?;
+
+    // we look for members that aren't me
+    let filter = |x: &&JsonValue| {
+        (x["type"] == "m.room.member" &&
+         x["content"]["membership"] == "join" &&
+         x["sender"] != userid)
+    };
+    let members = events.iter().filter(&filter);
+    let mut members2 = events.iter().filter(&filter);
+
+    let m1 = match members2.nth(0) {
+        Some(m) => m["content"]["avatar_url"].as_str().unwrap_or(""),
+        None => ""
+    };
+
+    let mut fname = match members.count() {
+        1 => thumb!(&base, m1).unwrap_or(String::new()),
+        _ => {String::new()},
+    };
+
+    if fname.is_empty() {
+        let roomname = calculate_room_name(&st, userid)?;
+        fname = draw_identicon(roomid, roomname)?;
+    }
+
+    Ok(fname)
 }
 
+struct Color {
+    r: i32,
+    g: i32,
+    b: i32,
+}
 
-fn get_room_name(base: &Url, tk: &str, userid: &str, roomid: &str) -> Result<String, Error> {
-    let st = get_room_st(base, tk, roomid)?;
-    let rname = calculate_room_name(&st, userid)?;
-    Ok(rname)
+fn calculate_hash<T: Hash>(t: &T) -> u64 {
+    let mut s = DefaultHasher::new();
+    t.hash(&mut s);
+    s.finish()
+}
+
+fn draw_identicon(fname: &str, name: String) -> Result<String, Error> {
+    let colors = vec![
+        Color{r:  69, g: 189, b: 243},
+        Color{r: 224, g: 143, b: 112},
+        Color{r:  77, g: 182, b: 172},
+        Color{r: 149, g: 117, b: 205},
+        Color{r: 176, g: 133, b:  94},
+        Color{r: 240, g:  98, b: 146},
+        Color{r: 163, g: 211, b: 108},
+        Color{r: 121, g: 134, b: 203},
+        Color{r: 241, g: 185, b:  29},
+    ];
+
+    let xdg_dirs = xdg::BaseDirectories::with_prefix("guillotine").unwrap();
+    let fname = String::from(xdg_dirs.place_cache_file(fname)?.to_str().ok_or(Error::BackendError)?);
+
+    let image = cairo::ImageSurface::create(cairo::Format::ARgb32, 40, 40)?;
+    let g = cairo::Context::new(&image);
+
+    let c = &colors[calculate_hash(&fname) as usize % colors.len() as usize];
+    g.set_source_rgba(c.r as f64 / 256.,
+                      c.g as f64 / 256.,
+                      c.b as f64 / 256., 1.);
+    g.rectangle(0., 0., 40., 40.);
+    g.fill();
+
+    g.set_font_size(24.);
+    g.set_source_rgb(1.0, 1.0, 1.0);
+
+    let first = match &name.chars().nth(0) {
+        &Some(f) if f == '#' => String::from(&name.to_uppercase()[1..2]),
+        &Some(_) => String::from(&name.to_uppercase()[0..1]),
+        &None => String::from("X"),
+    };
+
+    let te = g.text_extents(&first);
+    g.move_to(20. - te.width / 2., 20. + te.height / 2.);
+    g.show_text(&first);
+
+    let mut buffer = File::create(&fname)?;
+    image.write_to_png(&mut buffer)?;
+
+    Ok(fname)
 }
 
 fn calculate_room_name(roomst: &JsonValue, userid: &str) -> Result<String, Error> {
@@ -615,19 +717,13 @@ fn calculate_room_name(roomst: &JsonValue, userid: &str) -> Result<String, Error
     }
 
     // we look for members that aren't me
-    let mut members = events.iter()
-        .filter(|x| {
-            (x["type"] == "m.room.member" &&
-             x["content"]["membership"] == "join" &&
-             x["sender"] != userid)
-        });
-
-    let mut members2 = events.iter()
-        .filter(|x| {
-            (x["type"] == "m.room.member" &&
-             x["content"]["membership"] == "join" &&
-             x["sender"] != userid)
-        });
+    let filter = |x: &&JsonValue| {
+        (x["type"] == "m.room.member" &&
+         x["content"]["membership"] == "join" &&
+         x["sender"] != userid)
+    };
+    let members = events.iter().filter(&filter);
+    let mut members2 = events.iter().filter(&filter);
 
     let m1 = match members2.nth(0) {
         Some(m) => m["content"]["displayname"].as_str().unwrap_or(""),
