@@ -511,7 +511,9 @@ impl App {
                     theop.lock().unwrap().scroll_down();
                 },
                 Ok(backend::BKResponse::RoomMembers(members)) => {
-                    for m in members {
+                    let mut ms = members;
+                    ms.sort_by(|x, y| x.get_alias().to_lowercase().cmp(&y.get_alias().to_lowercase()));
+                    for m in ms {
                         theop.lock().unwrap().add_room_member(m);
                     }
                 },
