@@ -24,46 +24,28 @@ use std::io;
 use self::chrono::prelude::*;
 use self::time::Duration;
 
-// TODO: send errors to the frontend
-
 macro_rules! get {
-    ($url: expr, $attrs: expr, $okcb: expr) => {
-        query!(get, $url, $attrs, JsonValue, $okcb, |err| {
-                println!("ERROR {:?}", err);
-            });
+    ($url: expr, $attrs: expr, $okcb: expr, $errcb: expr) => {
+        query!("get", $url, $attrs, $okcb, $errcb)
     };
-
-    ($url: expr, $attrs: expr, $resp: ident, $okcb: expr) => {
-        query!(get, $url, $attrs, $resp, $okcb, |err| {
-                println!("ERROR {:?}", err);
-            });
+    ($url: expr, $okcb: expr, $errcb: expr) => {
+        query!("get", $url, $okcb, $errcb)
     };
 }
 
 macro_rules! post {
-    ($url: expr, $attrs: expr, $okcb: expr) => {
-        query!(post, $url, $attrs, JsonValue, $okcb, |err| {
-                println!("ERROR {:?}", err);
-            });
+    ($url: expr, $attrs: expr, $okcb: expr, $errcb: expr) => {
+        query!("post", $url, $attrs, $okcb, $errcb)
     };
-
-    ($url: expr, $attrs: expr, $resp: ident, $okcb: expr) => {
-        query!(post, $url, $attrs, $resp, $okcb, |err| {
-                println!("ERROR {:?}", err);
-            });
+    ($url: expr, $okcb: expr, $errcb: expr) => {
+        query!("post", $url, $okcb, $errcb)
     };
 }
 
 macro_rules! query {
-    ($method: ident, $url: expr, $attrs: expr, $resp: ident, $okcb: expr, $errcb: expr) => {
-        // TODO: remove unwrap and manage errors
+    ($method: expr, $url: expr, $attrs: expr, $okcb: expr, $errcb: expr) => {
         thread::spawn(move || {
-            let client = reqwest::Client::new().unwrap();
-            let mut conn = client.$method($url.as_str()).unwrap();
-            let conn2 = conn.json(&$attrs).unwrap();
-            let mut res = conn2.send().unwrap();
-
-            let js: Result<$resp, _> = res.json();
+            let js = json_q($method, $url, $attrs);
 
             match js {
                 Ok(r) => {
@@ -73,10 +55,11 @@ macro_rules! query {
                     $errcb(err)
                 }
             }
-            //let mut content = String::new();
-            //res.read_to_string(&mut content);
-            //cb(content);
         });
+    };
+    ($method: expr, $url: expr, $okcb: expr, $errcb: expr) => {
+        let attrs: HashMap<String, String> = HashMap::new();
+        query!($method, $url, &attrs, $okcb, $errcb)
     };
 }
 
@@ -142,6 +125,18 @@ pub enum BKResponse {
     RoomMessages(Vec<Message>),
     RoomMembers(Vec<Member>),
     RoomMemberAvatar(String, String),
+
+    //errors
+    UserNameError(Error),
+    AvatarError(Error),
+    LoginError(Error),
+    GuestLoginError(Error),
+    SyncError(Error),
+    RoomDetailError(Error),
+    RoomAvatarError(Error),
+    RoomMessagesError(Error),
+    RoomMembersError(Error),
+    RoomMemberAvatarError(Error),
 }
 
 #[derive(Debug)]
@@ -185,18 +180,17 @@ impl Backend {
         let url = Url::parse(&s).unwrap().join("/_matrix/client/r0/register?kind=guest")?;
         self.data.lock().unwrap().server_url = s;
 
-        let map: HashMap<String, String> = HashMap::new();
-
         let data = self.data.clone();
         let tx = self.tx.clone();
-        post!(url, map,
+        post!(&url,
             |r: JsonValue| {
                 let uid = String::from(r["user_id"].as_str().unwrap_or(""));
                 let tk = String::from(r["access_token"].as_str().unwrap_or(""));
                 data.lock().unwrap().user_id = uid.clone();
                 data.lock().unwrap().access_token = tk.clone();
                 tx.send(BKResponse::Token(uid, tk)).unwrap();
-            }
+            },
+            |err| { tx.send(BKResponse::GuestLoginError(err)).unwrap() }
         );
 
         Ok(())
@@ -207,14 +201,14 @@ impl Backend {
         let url = Url::parse(&s)?.join("/_matrix/client/r0/login")?;
         self.data.lock().unwrap().server_url = s;
 
-        let mut map = HashMap::new();
-        map.insert("type", String::from("m.login.password"));
-        map.insert("user", user);
-        map.insert("password", password);
+        let mut map: HashMap<String, String> = HashMap::new();
+        map.insert(String::from("type"), String::from("m.login.password"));
+        map.insert(String::from("user"), user);
+        map.insert(String::from("password"), password);
 
         let data = self.data.clone();
         let tx = self.tx.clone();
-        post!(url, map,
+        post!(&url, &map,
             |r: JsonValue| {
                 let uid = String::from(r["user_id"].as_str().unwrap_or(""));
                 let tk = String::from(r["access_token"].as_str().unwrap_or(""));
@@ -222,7 +216,8 @@ impl Backend {
                 data.lock().unwrap().user_id = uid.clone();
                 data.lock().unwrap().access_token = tk.clone();
                 tx.send(BKResponse::Token(uid, tk)).unwrap();
-            }
+            },
+            |err| { tx.send(BKResponse::LoginError(err)).unwrap() }
         );
 
         Ok(())
@@ -232,14 +227,14 @@ impl Backend {
         let baseu = self.get_base_url()?;
         let id = self.data.lock().unwrap().user_id.clone() + "/";
         let url = baseu.join("/_matrix/client/r0/profile/")?.join(&id)?.join("displayname")?;
-        let map: HashMap<String, String> = HashMap::new();
 
         let tx = self.tx.clone();
-        get!(url, map,
+        get!(&url,
             |r: JsonValue| {
                 let name = String::from(r["displayname"].as_str().unwrap_or(""));
                 tx.send(BKResponse::Name(name)).unwrap();
-            }
+            },
+            |err| { tx.send(BKResponse::UserNameError(err)).unwrap() }
         );
 
         Ok(())
@@ -249,16 +244,17 @@ impl Backend {
         let baseu = self.get_base_url()?;
         let id = self.data.lock().unwrap().user_id.clone() + "/";
         let url = baseu.join("/_matrix/client/r0/profile/")?.join(&id)?.join("avatar_url")?;
-        let map: HashMap<String, String> = HashMap::new();
 
         let tx = self.tx.clone();
-        get!(url, map,
+        get!(&url,
             |r: JsonValue| {
                 let url = String::from(r["avatar_url"].as_str().unwrap_or(""));
                 let fname = thumb!(baseu, &url).unwrap();
 
                 tx.send(BKResponse::Avatar(fname)).unwrap();
-        });
+            },
+            |err| { tx.send(BKResponse::AvatarError(err)).unwrap() }
+        );
 
         Ok(())
     }
@@ -288,11 +284,10 @@ impl Backend {
         }
 
         let url = baseu.join("/_matrix/client/r0/sync")?.join(&params)?;
-        let map: HashMap<String, String> = HashMap::new();
 
         let tx = self.tx.clone();
         let data = self.data.clone();
-        get!(url, map,
+        get!(&url,
             |r: JsonValue| {
                 let next_batch = String::from(r["next_batch"].as_str().unwrap_or(""));
                 if since.is_empty() {
@@ -305,7 +300,9 @@ impl Backend {
                 data.lock().unwrap().since = next_batch;
 
                 tx.send(BKResponse::Sync).unwrap();
-        });
+            },
+            |err| { tx.send(BKResponse::SyncError(err)).unwrap() }
+        );
 
         Ok(())
     }
@@ -316,11 +313,10 @@ impl Backend {
         let mut url = baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid + "/"))?;
         url = url.join(&format!("state/{}", key))?;
         url = url.join(&format!("?access_token={}", tk))?;
-        let map: HashMap<String, String> = HashMap::new();
 
         let tx = self.tx.clone();
         let keys = key.clone();
-        get!(url, map,
+        get!(&url,
             |r: JsonValue| {
                 let mut value = String::from("");
                 let k = keys.split('.').last().unwrap();
@@ -330,7 +326,9 @@ impl Backend {
                     None => {}
                 }
                 tx.send(BKResponse::RoomDetail(key, value)).unwrap();
-        });
+            },
+            |err| { tx.send(BKResponse::RoomDetailError(err)).unwrap() }
+        );
 
         Ok(())
     }
@@ -340,19 +338,22 @@ impl Backend {
         let tk = self.data.lock().unwrap().access_token.clone();
         let mut url = baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid + "/"))?.join("state/m.room.avatar")?;
         url = url.join(&format!("?access_token={}", tk))?;
-        let map: HashMap<String, String> = HashMap::new();
 
         let tx = self.tx.clone();
-        get!(url, map,
+        get!(&url,
             |r: JsonValue| {
                 let mut avatar = String::from("");
 
                 match r["url"].as_str() {
                     Some(u) => { avatar = thumb!(baseu.clone(), u).unwrap(); },
-                    None => {}
+                    None => {
+                        // TODO: if None we'll use the creator avatar
+                    }
                 }
                 tx.send(BKResponse::RoomAvatar(avatar)).unwrap();
-        });
+            },
+            |err| { tx.send(BKResponse::RoomAvatarError(err)).unwrap() }
+        );
 
         Ok(())
     }
@@ -362,10 +363,9 @@ impl Backend {
         let tk = self.data.lock().unwrap().access_token.clone();
         let mut url = baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid + "/"))?.join("messages")?;
         url = url.join(&format!("?access_token={}&dir=b&limit=40", tk))?;
-        let map: HashMap<String, String> = HashMap::new();
 
         let tx = self.tx.clone();
-        get!(url, map,
+        get!(&url,
             |r: JsonValue| {
                 let mut ms: Vec<Message> = vec![];
                 for msg in r["chunk"].as_array().unwrap().iter().rev() {
@@ -381,7 +381,9 @@ impl Backend {
                     ms.push(m);
                 }
                 tx.send(BKResponse::RoomMessages(ms)).unwrap();
-        });
+            },
+            |err| { tx.send(BKResponse::RoomMessagesError(err)).unwrap() }
+        );
 
         Ok(())
     }
@@ -391,10 +393,9 @@ impl Backend {
         let tk = self.data.lock().unwrap().access_token.clone();
         let mut url = baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid + "/"))?.join("members")?;
         url = url.join(&format!("?access_token={}", tk))?;
-        let map: HashMap<String, String> = HashMap::new();
 
         let tx = self.tx.clone();
-        get!(url, map,
+        get!(&url,
             |r: JsonValue| {
                 //println!("{:#?}", r);
                 let mut ms: Vec<Member> = vec![];
@@ -422,7 +423,9 @@ impl Backend {
                 if !ms.is_empty() {
                     tx.send(BKResponse::RoomMembers(ms)).unwrap();
                 }
-        });
+            },
+            |err| { tx.send(BKResponse::RoomMembersError(err)).unwrap() }
+        );
 
         Ok(())
     }
@@ -432,8 +435,14 @@ impl Backend {
 
         let tx = self.tx.clone();
         thread::spawn(move || {
-            let fname = thumb!(baseu, &avatar_url).unwrap();
-            tx.send(BKResponse::RoomMemberAvatar(memberid, fname)).unwrap();
+            match thumb!(baseu, &avatar_url) {
+                Ok(fname) => {
+                    tx.send(BKResponse::RoomMemberAvatar(memberid, fname)).unwrap();
+                },
+                Err(err) => {
+                    tx.send(BKResponse::RoomMemberAvatarError(err)).unwrap();
+                }
+            }
         });
 
         Ok(())
@@ -531,4 +540,27 @@ fn age_to_datetime(age: i64) -> DateTime<Local> {
     let now = Local::now();
     let diff = Duration::seconds(age / 1000);
     now - diff
+}
+
+fn json_q(method: &str, url: &Url, attrs: &HashMap<String, String>) -> Result<JsonValue, Error> {
+    let client = reqwest::Client::new()?;
+
+    let mut conn = match method {
+        "post" => client.post(url.as_str())?,
+        "put" => client.put(url.as_str())?,
+        "delete" => client.delete(url.as_str())?,
+        _ => client.get(url.as_str())?,
+    };
+
+    let conn2 = conn.json(&attrs)?;
+    let mut res = conn2.send()?;
+
+    //let mut content = String::new();
+    //res.read_to_string(&mut content);
+    //cb(content);
+
+    match res.json() {
+        Ok(js) => Ok(js),
+        Err(_) => Err(Error::BackendError),
+    }
 }

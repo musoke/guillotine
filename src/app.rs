@@ -513,6 +513,10 @@ impl App {
                 },
                 Ok(backend::BKResponse::RoomMemberAvatar(_, _)) => {
                 },
+                // errors
+                Ok(err) => {
+                    println!("Query error: {:?}", err);
+                }
                 Err(_) => { },
             };
 
