@@ -1,6 +1,7 @@
 extern crate gtk;
 extern crate gio;
 extern crate gdk_pixbuf;
+extern crate chrono;
 
 extern crate secret_service;
 use self::secret_service::SecretService;
@@ -15,6 +16,8 @@ use std::collections::HashMap;
 use self::gio::ApplicationExt;
 use self::gdk_pixbuf::Pixbuf;
 use self::gtk::prelude::*;
+
+use self::chrono::prelude::*;
 
 use backend::Backend;
 use backend;
@@ -287,29 +290,11 @@ impl AppOp {
         }
     }
 
-    pub fn add_room_message(&self, msg: backend::Message) {
-        let messages = self.gtk_builder
-            .get_object::<gtk::ListBox>("message_list")
-            .expect("Can't find message_list in ui file.");
-
-        let body = msg.b;
-        let sender = msg.s;
-
-        let mut msg = gtk::Box::new(gtk::Orientation::Horizontal, 5);
-
-        let mut vert = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        let mut label = gtk::Label::new(&body[..]);
-        label.set_line_wrap(true);
-        label.set_justify(gtk::Justification::Left);
-        label.set_halign(gtk::Align::Start);
-        label.set_alignment(0 as f32, 0 as f32);
-
-        let mut fname = sender.clone();
-        let mut avatar_url = String::new();
-        if let Some(m) = self.members.get(&sender) {
-            fname = m.get_alias();
-            avatar_url = m.avatar.clone();
-        }
+    fn build_room_msg_avatar(&self, sender: &str) -> gtk::Image {
+        let avatar_url = match self.members.get(sender) {
+            Some(m) => m.avatar.clone(),
+            None => String::new()
+        };
 
         let avatar = gtk::Image::new_from_icon_name("image-missing", 5);
 
@@ -319,32 +304,117 @@ impl AppOp {
             let (tx, rx): (Sender<String>, Receiver<String>) = channel();
             self.backend.get_media_async(avatar_url, tx).unwrap();
             gtk::timeout_add(50, move || {
-                let recv = rx.try_recv();
-
-                if recv.is_err() {
-                    return gtk::Continue(true);
+                match rx.try_recv() {
+                    Err(_) => gtk::Continue(true),
+                    Ok(fname) => {
+                        if let Ok(pixbuf) = Pixbuf::new_from_file_at_size(&fname, 32, 32) {
+                            a.set_from_pixbuf(&pixbuf);
+                        }
+                        gtk::Continue(false)
+                    }
                 }
-
-                let fname = recv.unwrap();
-                if let Ok(pixbuf) = Pixbuf::new_from_file_at_size(&fname, 32, 32) {
-                    a.set_from_pixbuf(&pixbuf);
-                }
-
-                gtk::Continue(false)
             });
         }
 
+        avatar
+    }
+
+    fn build_room_msg_username(&self, sender: &str) -> gtk::Label {
+        let uname = match self.members.get(sender) {
+            Some(m) => m.get_alias(),
+            None => String::from(sender)
+        };
+
         let mut username = gtk::Label::new("");
-        username.set_markup(&format!("<span color=\"gray\">{}</span>", fname));
+        username.set_markup(&format!("<span color=\"gray\">{}</span>", uname));
         username.set_justify(gtk::Justification::Left);
         username.set_halign(gtk::Align::Start);
 
-        vert.pack_start(&username, false, false, 0);
-        vert.pack_start(&label, true, true, 0);
+        username
+    }
 
-        msg.pack_start(&avatar, false, true, 5);
-        msg.pack_start(&vert, true, true, 0);
-        msg.show_all();
+    fn build_room_msg_body(&self, body: &str) -> gtk::Label {
+        let mut msg = gtk::Label::new(body);
+        msg.set_line_wrap(true);
+        msg.set_justify(gtk::Justification::Left);
+        msg.set_halign(gtk::Align::Start);
+        msg.set_alignment(0 as f32, 0 as f32);
+
+        msg
+    }
+
+    fn build_room_msg_date(&self, dt: &DateTime<Local>) -> gtk::Label {
+        let d = dt.format("%d/%b/%y %H:%M").to_string();
+
+        let mut date = gtk::Label::new("");
+        date.set_markup(&format!("<span color=\"gray\">{}</span>", d));
+        date.set_line_wrap(true);
+        date.set_justify(gtk::Justification::Right);
+        date.set_halign(gtk::Align::End);
+        date.set_alignment(1 as f32, 0 as f32);
+
+        date
+    }
+
+    fn build_room_msg_info(&self, msg: &backend::Message) -> gtk::Box {
+        // info
+        // +----------+------+
+        // | username | date |
+        // +----------+------+
+        let mut info = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+
+        let username = self.build_room_msg_username(&msg.sender);
+        let date = self.build_room_msg_date(&msg.date);
+
+        info.pack_start(&username, true, true, 0);
+        info.pack_start(&date, false, false, 0);
+
+        info
+    }
+
+    fn build_room_msg_content(&self, msg: &backend::Message) -> gtk::Box {
+        // content
+        // +------+
+        // | info |
+        // +------+
+        // | body |
+        // +------+
+        let mut content = gtk::Box::new(gtk::Orientation::Vertical, 0);
+
+        let info = self.build_room_msg_info(msg);
+        let body = self.build_room_msg_body(&msg.body);
+
+        content.pack_start(&info, false, false, 0);
+        content.pack_start(&body, true, true, 0);
+
+        content
+
+    }
+
+    fn build_room_msg(&self, msg: backend::Message) -> gtk::Box {
+        let avatar = self.build_room_msg_avatar(&msg.sender);
+
+        // msg
+        // +--------+---------+
+        // | avatar | content |
+        // +--------+---------+
+        let mut msg_widget = gtk::Box::new(gtk::Orientation::Horizontal, 5);
+        let content = self.build_room_msg_content(&msg);
+
+        msg_widget.pack_start(&avatar, false, true, 5);
+        msg_widget.pack_start(&content, true, true, 0);
+
+        msg_widget.show_all();
+
+        msg_widget
+    }
+
+    pub fn add_room_message(&self, msg: backend::Message) {
+        let messages = self.gtk_builder
+            .get_object::<gtk::ListBox>("message_list")
+            .expect("Can't find message_list in ui file.");
+
+        let msg = self.build_room_msg(msg);
 
         messages.add(&msg);
     }

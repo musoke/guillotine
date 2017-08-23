@@ -3,6 +3,8 @@ extern crate reqwest;
 extern crate regex;
 extern crate xdg;
 extern crate serde_json;
+extern crate chrono;
+extern crate time;
 
 use self::regex::Regex;
 
@@ -18,6 +20,9 @@ use std::io::Read;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io;
+
+use self::chrono::prelude::*;
+use self::time::Duration;
 
 // TODO: send errors to the frontend
 
@@ -142,14 +147,10 @@ pub enum BKResponse {
 
 #[derive(Debug)]
 pub struct Message {
-    /// the sender
-    pub s: String,
-    /// the message type
-    pub t: String,
-    /// the message body
-    pub b: String,
-    /// the message age
-    pub a: i64,
+    pub sender: String,
+    pub mtype: String,
+    pub body: String,
+    pub date: DateTime<Local>,
 }
 
 #[derive(Debug)]
@@ -370,11 +371,13 @@ impl Backend {
                 let mut ms: Vec<Message> = vec![];
                 for msg in r["chunk"].as_array().unwrap().iter().rev() {
                     //println!("messages: {:#?}", msg);
+                    let age = msg["age"].as_i64().unwrap_or(0);
+
                     let m = Message {
-                        s: String::from(msg["sender"].as_str().unwrap()),
-                        t: String::from(msg["content"]["msgtype"].as_str().unwrap()),
-                        b: String::from(msg["content"]["body"].as_str().unwrap()),
-                        a: msg["age"].as_i64().unwrap(),
+                        sender: String::from(msg["sender"].as_str().unwrap()),
+                        mtype: String::from(msg["content"]["msgtype"].as_str().unwrap()),
+                        body: String::from(msg["content"]["body"].as_str().unwrap()),
+                        date: age_to_datetime(age),
                     };
                     ms.push(m);
                 }
@@ -523,4 +526,10 @@ fn dw_media(base: Url, url: &str, thumb: bool, dest: Option<&str>, w: i32, h: i3
     file.write_all(&buffer)?;
 
     Ok(fname)
+}
+
+fn age_to_datetime(age: i64) -> DateTime<Local> {
+    let now = Local::now();
+    let diff = Duration::seconds(age / 1000);
+    now - diff
 }
