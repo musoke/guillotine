@@ -426,10 +426,6 @@ impl AppOp {
     }
 
     pub fn add_room_member(&mut self, m: backend::Member) {
-        if !m.avatar.is_empty() {
-            self.backend.get_member_avatar(m.uid.clone(), m.avatar.clone()).unwrap();
-        }
-
         let store: gtk::ListStore = self.gtk_builder.get_object("members_store")
             .expect("Couldn't find members_store in ui file.");
 
