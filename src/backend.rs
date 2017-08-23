@@ -375,15 +375,18 @@ impl Backend {
         let baseu = self.get_base_url()?;
         let tk = self.data.lock().unwrap().access_token.clone();
         let mut url = baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid + "/"))?.join("messages")?;
-        url = url.join(&format!("?access_token={}&dir=b&limit=40", tk))?;
+        url = url.join(&format!("?access_token={}&dir=b&limit=20", tk))?;
 
         let tx = self.tx.clone();
         get!(&url,
             |r: JsonValue| {
                 let mut ms: Vec<Message> = vec![];
                 for msg in r["chunk"].as_array().unwrap().iter().rev() {
-                    //println!("messages: {:#?}", msg);
                     let age = msg["age"].as_i64().unwrap_or(0);
+
+                    if msg["type"].as_str().unwrap_or("") != "m.room.message" {
+                        continue;
+                    }
 
                     let m = Message {
                         sender: String::from(msg["sender"].as_str().unwrap()),

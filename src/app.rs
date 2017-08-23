@@ -303,7 +303,7 @@ impl AppOp {
             match rx.try_recv() {
                 Err(_) => gtk::Continue(true),
                 Ok(fname) => {
-                    if let Ok(pixbuf) = Pixbuf::new_from_file_at_size(&fname, 32, 32) {
+                    if let Ok(pixbuf) = Pixbuf::new_from_file_at_scale(&fname, 32, 32, false) {
                         a.set_from_pixbuf(&pixbuf);
                     }
                     gtk::Continue(false)
