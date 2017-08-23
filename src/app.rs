@@ -326,7 +326,7 @@ impl AppOp {
         };
 
         let mut username = gtk::Label::new("");
-        username.set_markup(&format!("<span color=\"gray\">{}</span>", uname));
+        username.set_markup(&format!("<b>{}</b>", uname));
         username.set_justify(gtk::Justification::Left);
         username.set_halign(gtk::Align::Start);
 
@@ -347,7 +347,7 @@ impl AppOp {
         let d = dt.format("%d/%b/%y %H:%M").to_string();
 
         let mut date = gtk::Label::new("");
-        date.set_markup(&format!("<span color=\"gray\">{}</span>", d));
+        date.set_markup(&format!("<span alpha=\"60%\">{}</span>", d));
         date.set_line_wrap(true);
         date.set_justify(gtk::Justification::Right);
         date.set_halign(gtk::Align::End);
