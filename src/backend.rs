@@ -242,19 +242,19 @@ impl Backend {
 
     pub fn get_avatar(&self) -> Result<(), Error> {
         let baseu = self.get_base_url()?;
-        let id = self.data.lock().unwrap().user_id.clone() + "/";
-        let url = baseu.join("/_matrix/client/r0/profile/")?.join(&id)?.join("avatar_url")?;
+        let userid = self.data.lock().unwrap().user_id.clone();
 
         let tx = self.tx.clone();
-        get!(&url,
-            |r: JsonValue| {
-                let url = String::from(r["avatar_url"].as_str().unwrap_or(""));
-                let fname = thumb!(baseu, &url).unwrap();
-
-                tx.send(BKResponse::Avatar(fname)).unwrap();
-            },
-            |err| { tx.send(BKResponse::AvatarError(err)).unwrap() }
-        );
+        thread::spawn(move || {
+            match get_user_avatar(&baseu, &userid) {
+                Ok(fname) => {
+                    tx.send(BKResponse::Avatar(fname)).unwrap();
+                },
+                Err(err) => {
+                    tx.send(BKResponse::AvatarError(err)).unwrap();
+                }
+            }
+        });
 
         Ok(())
     }
@@ -263,6 +263,7 @@ impl Backend {
         let baseu = self.get_base_url()?;
         let token = self.data.lock().unwrap().access_token.clone();
         let since = self.data.lock().unwrap().since.clone();
+        let userid = self.data.lock().unwrap().user_id.clone();
 
         let mut params: String;
 
@@ -272,12 +273,14 @@ impl Backend {
                                           \"room\": {\
                                             \"state\": {\
                                                 \"types\": [\"m.room.*\"],\
-                                                \"not_types\": [\"m.room.member\"]\
                                             },\
                                             \"timeline\": {\"limit\":0},\
                                             \"ephemeral\": {\"types\": []}\
                                           },\
-                                          \"presence\": {\"types\": []}\
+                                          \"presence\": {\"types\": []},\
+                                          \"event_format\": \"client\",\
+                                          \"event_fields\": [\"type\", \"content\", \"sender\"]\
+
                                       }";
         } else {
             params = format!("?full_state=false&timeout=30000&access_token={}&since={}", token, since);
@@ -291,7 +294,7 @@ impl Backend {
             |r: JsonValue| {
                 let next_batch = String::from(r["next_batch"].as_str().unwrap_or(""));
                 if since.is_empty() {
-                    let rooms = get_rooms_from_json(r).unwrap();
+                    let rooms = get_rooms_from_json(r, &userid).unwrap();
                     tx.send(BKResponse::Rooms(rooms)).unwrap();
                 } else {
                     // TODO: treat all events
@@ -336,7 +339,8 @@ impl Backend {
     pub fn get_room_avatar(&self, roomid: String) -> Result<(), Error> {
         let baseu = self.get_base_url()?;
         let tk = self.data.lock().unwrap().access_token.clone();
-        let mut url = baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid + "/"))?.join("state/m.room.avatar")?;
+        let roomu = baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid + "/"))?;
+        let mut url = roomu.join("state/m.room.avatar")?;
         url = url.join(&format!("?access_token={}", tk))?;
 
         let tx = self.tx.clone();
@@ -345,9 +349,12 @@ impl Backend {
                 let mut avatar = String::from("");
 
                 match r["url"].as_str() {
-                    Some(u) => { avatar = thumb!(baseu.clone(), u).unwrap(); },
+                    Some(u) => {
+                        avatar = thumb!(&baseu, u).unwrap();
+                    },
                     None => {
-                        // TODO: if None we'll use the creator avatar
+                        // TODO: use identicon API
+                        // /_matrix/media/v1/identicon/$ident
                     }
                 }
                 tx.send(BKResponse::RoomAvatar(avatar)).unwrap();
@@ -435,7 +442,7 @@ impl Backend {
 
         let tx = self.tx.clone();
         thread::spawn(move || {
-            match thumb!(baseu, &avatar_url) {
+            match thumb!(&baseu, &avatar_url) {
                 Ok(fname) => {
                     tx.send(BKResponse::RoomMemberAvatar(memberid, fname)).unwrap();
                 },
@@ -459,7 +466,7 @@ impl Backend {
 
         let u = url.clone();
         thread::spawn(move || {
-            let fname = thumb!(base, &u).unwrap();
+            let fname = thumb!(&base, &u).unwrap();
             tx.send(fname).unwrap();
         });
 
@@ -467,7 +474,7 @@ impl Backend {
     }
 }
 
-fn get_rooms_from_json(r: JsonValue) -> Result<HashMap<String, String>, Error> {
+fn get_rooms_from_json(r: JsonValue, userid: &str) -> Result<HashMap<String, String>, Error> {
     let rooms = &r["rooms"];
     // TODO: do something with invite and leave
     //let invite = rooms["invite"].as_object().ok_or(Error::BackendError)?;
@@ -478,13 +485,8 @@ fn get_rooms_from_json(r: JsonValue) -> Result<HashMap<String, String>, Error> {
     let mut rooms_map: HashMap<String, String> = HashMap::new();
     for k in join.keys() {
         let room = join.get(k).ok_or(Error::BackendError)?;
-        let events = room["state"]["events"].as_array().ok_or(Error::BackendError)?;
-        let name = events.iter().find(|x| x["type"] == "m.room.name");
-        let n = match name {
-            None => k.clone(),
-            Some(o) => String::from(o["content"]["name"].as_str().ok_or(Error::BackendError)?),
-        };
-        rooms_map.insert(k.clone(), n);
+        let name = calculate_room_name(&room["state"]["events"], userid)?;
+        rooms_map.insert(k.clone(), name);
     }
 
     Ok(rooms_map)
@@ -501,7 +503,7 @@ fn get_media(url: &str) -> Result<Vec<u8>, Error> {
     Ok(buffer)
 }
 
-fn dw_media(base: Url, url: &str, thumb: bool, dest: Option<&str>, w: i32, h: i32) -> Result<String, Error> {
+fn dw_media(base: &Url, url: &str, thumb: bool, dest: Option<&str>, w: i32, h: i32) -> Result<String, Error> {
     // TODO, don't download if exists
 
     let xdg_dirs = xdg::BaseDirectories::with_prefix("guillotine").unwrap();
@@ -563,4 +565,85 @@ fn json_q(method: &str, url: &Url, attrs: &HashMap<String, String>) -> Result<Js
         Ok(js) => Ok(js),
         Err(_) => Err(Error::BackendError),
     }
+}
+
+pub fn get_user_avatar(baseu: &Url, userid: &str) -> Result<String, Error> {
+    let id = format!("{}/", userid);
+    let url = baseu.join("/_matrix/client/r0/profile/")?.join(&id)?.join("avatar_url")?;
+    let attrs: HashMap<String, String> = HashMap::new();
+
+    match json_q("get", &url, &attrs) {
+        Ok(js) => {
+            let url = String::from(js["avatar_url"].as_str().unwrap_or(""));
+            let fname = thumb!(baseu, &url)?;
+            Ok(fname)
+        },
+        Err(_) => { Err(Error::BackendError) }
+    }
+}
+
+fn get_room_st(base: &Url, tk: &str, roomid: &str) -> Result<JsonValue, Error> {
+    let mut url = base.join("/_matrix/client/r0/rooms/")?
+        .join(&(format!("{}/state", roomid)))?;
+    url = url.join(&format!("?access_token={}", tk))?;
+    let attrs: HashMap<String, String> = HashMap::new();
+    let st = json_q("get", &url, &attrs)?;
+    Ok(st)
+}
+
+fn get_room_avatar(base: &Url, tk: &str, userid: &str, roomid: &str) -> Result<String, Error> {
+    Ok(String::from("TODO"))
+}
+
+
+fn get_room_name(base: &Url, tk: &str, userid: &str, roomid: &str) -> Result<String, Error> {
+    let st = get_room_st(base, tk, roomid)?;
+    let rname = calculate_room_name(&st, userid)?;
+    Ok(rname)
+}
+
+fn calculate_room_name(roomst: &JsonValue, userid: &str) -> Result<String, Error> {
+
+    // looking for "m.room.name" event
+    let events = roomst.as_array().ok_or(Error::BackendError)?;
+    if let Some(name) = events.iter().find(|x| x["type"] == "m.room.name") {
+        return Ok(String::from(name["content"]["name"].as_str().unwrap_or("WRONG NAME")))
+    }
+    // looking for "m.room.canonical_alias" event
+    if let Some(name) = events.iter().find(|x| x["type"] == "m.room.canonical_alias") {
+        return Ok(String::from(name["content"]["alias"].as_str().unwrap_or("WRONG ALIAS")))
+    }
+
+    // we look for members that aren't me
+    let mut members = events.iter()
+        .filter(|x| {
+            (x["type"] == "m.room.member" &&
+             x["content"]["membership"] == "join" &&
+             x["sender"] != userid)
+        });
+
+    let mut members2 = events.iter()
+        .filter(|x| {
+            (x["type"] == "m.room.member" &&
+             x["content"]["membership"] == "join" &&
+             x["sender"] != userid)
+        });
+
+    let m1 = match members2.nth(0) {
+        Some(m) => m["content"]["displayname"].as_str().unwrap_or(""),
+        None => ""
+    };
+    let m2 = match members2.nth(1) {
+        Some(m) => m["content"]["displayname"].as_str().unwrap_or(""),
+        None => ""
+    };
+
+    let name = match members.count() {
+        0 => String::from("EMPTY ROOM"),
+        1 => String::from(m1),
+        2 => format!("{} and {}", m1, m2),
+        _ => format!("{} and Others", m1)
+    };
+
+    Ok(name)
 }

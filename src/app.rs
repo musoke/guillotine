@@ -220,7 +220,7 @@ impl AppOp {
         }
     }
 
-    pub fn set_active_room(&mut self, room: String) {
+    pub fn set_active_room(&mut self, room: String, name: String) {
         self.active_room = room;
 
         let messages = self.gtk_builder
@@ -236,8 +236,12 @@ impl AppOp {
             .expect("Can't find members_store in ui file.");
         members.clear();
 
+        let name_label = self.gtk_builder
+            .get_object::<gtk::Label>("room_name")
+            .expect("Can't find room_name in ui file.");
+        name_label.set_text(&name);
+
         // getting room details
-        self.backend.get_room_detail(self.active_room.clone(), String::from("m.room.name")).unwrap();
         self.backend.get_room_detail(self.active_room.clone(), String::from("m.room.topic")).unwrap();
         self.backend.get_room_avatar(self.active_room.clone()).unwrap();
         self.backend.get_room_messages(self.active_room.clone()).unwrap();
@@ -589,7 +593,8 @@ impl App {
         treeview.connect_row_activated(move |view, path, _| {
             let iter = view.get_model().unwrap().get_iter(path).unwrap();
             let id = view.get_model().unwrap().get_value(&iter, 1);
-            op.lock().unwrap().set_active_room(id.get().unwrap());
+            let name = view.get_model().unwrap().get_value(&iter, 0);
+            op.lock().unwrap().set_active_room(id.get().unwrap(), name.get().unwrap());
         });
     }
 
