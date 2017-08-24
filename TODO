@@ -1,0 +1,25 @@
+Fixs:
+    * Show loading feedback
+    * Fix messages scroll
+    * Ignore launched threads when changing room...
+    * Sort rooms by last message or fav?
+
+Functionality:
+    * Room search
+    * Room creation
+    * Leave room
+    * Set topic
+    * Set room avatar
+    * Change user display name
+    * Change user avatar
+    * Register
+    * Show media messages (images / videos)
+    * Send media messages (images / videos)
+
+Other stuff:
+    * Create an icon for the app
+    * Set the app name correctly to show in the shell topbar
+    * Make sidebars hideables
+
+Encription:
+    https://matrix.org/docs/guides/e2e_implementation.html
