@@ -17,7 +17,6 @@ Functionality:
     * Send media messages (images / videos)
 
 Other stuff:
-    * Create an icon for the app
     * Set the app name correctly to show in the shell topbar
     * Make sidebars hideables
 

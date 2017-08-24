@@ -562,6 +562,7 @@ impl App {
             .expect("Couldn't find main_window in ui file.");
 
         window.set_title("Guillotine");
+        window.set_icon_from_file("res/icon.svg");
         window.show_all();
 
         let op = self.op.clone();
