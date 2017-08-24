@@ -349,14 +349,30 @@ impl AppOp {
         username
     }
 
-    fn build_room_msg_body(&self, body: &str) -> gtk::Label {
+    fn build_room_msg_body(&self, body: &str) -> gtk::Box {
+        let bx = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         let msg = gtk::Label::new(body);
         msg.set_line_wrap(true);
         msg.set_justify(gtk::Justification::Left);
         msg.set_halign(gtk::Align::Start);
         msg.set_alignment(0 as f32, 0 as f32);
 
-        msg
+        bx.add(&msg);
+        bx
+    }
+
+    fn build_room_msg_image(&self, msg: &backend::Message) -> gtk::Box {
+        let bx = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        let image = gtk::Image::new();
+        println!("image url: {}", msg.thumb);
+        if let Ok(pixbuf) = Pixbuf::new_from_file_at_size(&msg.thumb, 400, 400) {
+            image.set_from_pixbuf(&pixbuf);
+        }
+
+        // TODO: add buttons to view full size and download
+
+        bx.add(&image);
+        bx
     }
 
     fn build_room_msg_date(&self, dt: &DateTime<Local>) -> gtk::Label {
@@ -398,9 +414,17 @@ impl AppOp {
         let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
 
         let info = self.build_room_msg_info(msg);
-        let body = self.build_room_msg_body(&msg.body);
 
         content.pack_start(&info, false, false, 0);
+
+        let body: gtk::Box;
+
+        if msg.mtype == "m.image" {
+            body = self.build_room_msg_image(msg);
+        } else {
+            body = self.build_room_msg_body(&msg.body);
+        }
+
         content.pack_start(&body, true, true, 0);
 
         content
@@ -562,7 +586,7 @@ impl App {
             .expect("Couldn't find main_window in ui file.");
 
         window.set_title("Guillotine");
-        window.set_icon_from_file("res/icon.svg");
+        let _ = window.set_icon_from_file("res/icon.svg");
         window.show_all();
 
         let op = self.op.clone();
@@ -593,7 +617,7 @@ impl App {
 
         let entry = msg_entry.clone();
         let mut op = self.op.clone();
-        send_button.connect_clicked(move |btn| {
+        send_button.connect_clicked(move |_| {
             if let Some(text) = entry.get_text() {
                 op.lock().unwrap().send_message(text);
                 entry.set_text("");

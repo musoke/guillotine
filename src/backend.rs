@@ -155,6 +155,8 @@ pub struct Message {
     pub body: String,
     pub date: DateTime<Local>,
     pub room: String,
+    pub thumb: String,
+    pub url: String,
 }
 
 #[derive(Debug)]
@@ -308,7 +310,7 @@ impl Backend {
                     let rooms = get_rooms_from_json(r, &userid).unwrap();
                     tx.send(BKResponse::Rooms(rooms)).unwrap();
                 } else {
-                    match get_rooms_timeline_from_json(r) {
+                    match get_rooms_timeline_from_json(&baseu, r) {
                         Ok(msgs) => tx.send(BKResponse::RoomMessages(msgs)).unwrap(),
                         Err(err) => tx.send(BKResponse::RoomMessagesError(err)).unwrap(),
                     }
@@ -392,19 +394,11 @@ impl Backend {
             |r: JsonValue| {
                 let mut ms: Vec<Message> = vec![];
                 for msg in r["chunk"].as_array().unwrap().iter().rev() {
-                    let age = msg["age"].as_i64().unwrap_or(0);
-
                     if msg["type"].as_str().unwrap_or("") != "m.room.message" {
                         continue;
                     }
 
-                    let m = Message {
-                        sender: String::from(msg["sender"].as_str().unwrap()),
-                        mtype: String::from(msg["content"]["msgtype"].as_str().unwrap()),
-                        body: String::from(msg["content"]["body"].as_str().unwrap()),
-                        date: age_to_datetime(age),
-                        room: roomid.clone(),
-                    };
+                    let m = parse_room_message(&baseu, roomid.clone(), msg);
                     ms.push(m);
                 }
                 tx.send(BKResponse::RoomMessages(ms)).unwrap();
@@ -523,7 +517,7 @@ impl Backend {
 
         let tx = self.tx.clone();
         query!("put", &url, &attrs,
-            move |r: JsonValue| {
+            move |_| {
                 tx.send(BKResponse::SendMsg).unwrap();
             },
             |err| { tx.send(BKResponse::SendMsgError(err)).unwrap(); }
@@ -551,7 +545,7 @@ fn get_rooms_from_json(r: JsonValue, userid: &str) -> Result<HashMap<String, Str
     Ok(rooms_map)
 }
 
-fn get_rooms_timeline_from_json(r: JsonValue) -> Result<Vec<Message>, Error> {
+fn get_rooms_timeline_from_json(baseu: &Url, r: JsonValue) -> Result<Vec<Message>, Error> {
     let rooms = &r["rooms"];
     let join = rooms["join"].as_object().ok_or(Error::BackendError)?;
 
@@ -567,14 +561,7 @@ fn get_rooms_timeline_from_json(r: JsonValue) -> Result<Vec<Message>, Error> {
                       .filter(|x| x["type"] == "m.room.message");
 
         for ev in events {
-            let age = ev["age"].as_i64().unwrap_or(0);
-            let msg = Message {
-                sender: String::from(ev["sender"].as_str().unwrap()),
-                mtype: String::from(ev["content"]["msgtype"].as_str().unwrap()),
-                body: String::from(ev["content"]["body"].as_str().unwrap()),
-                date: age_to_datetime(age),
-                room: k.clone(),
-            };
+            let msg = parse_room_message(baseu, k.clone(), ev);
             msgs.push(msg);
         }
     }
@@ -812,4 +799,35 @@ fn calculate_room_name(roomst: &JsonValue, userid: &str) -> Result<String, Error
     };
 
     Ok(name)
+}
+
+fn parse_room_message(baseu: &Url, roomid: String, msg: &JsonValue) -> Message {
+    let sender = msg["sender"].as_str().unwrap_or("");
+    let age = msg["age"].as_i64().unwrap_or(0);
+
+    let c = &msg["content"];
+    let mtype = c["msgtype"].as_str().unwrap_or("");
+    let body = c["body"].as_str().unwrap_or("");
+
+    let mut url = String::new();
+    let mut thumb = String::new();
+
+    match mtype {
+        "m.image" => {
+            url = String::from(c["url"].as_str().unwrap_or(""));
+            let t = c["info"]["thumbnail_url"].as_str().unwrap_or("");
+            thumb = media!(baseu, t).unwrap_or(String::from(""));
+        },
+        _ => {},
+    };
+
+    Message {
+        sender: String::from(sender),
+        mtype: String::from(mtype),
+        body: String::from(body),
+        date: age_to_datetime(age),
+        room: roomid.clone(),
+        url: url,
+        thumb: thumb,
+    }
 }
