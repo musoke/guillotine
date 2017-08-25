@@ -507,6 +507,20 @@ impl AppOp {
         let room = self.active_room.clone();
         self.backend.send(BKCommand::SendMsg(room, msg)).unwrap();
     }
+
+    pub fn hide_members(&self) {
+        self.gtk_builder
+            .get_object::<gtk::Stack>("sidebar_stack")
+            .expect("Can't find sidebar_stack in ui file.")
+            .set_visible_child_name("sidebar_hidden");
+    }
+
+    pub fn show_members(&self) {
+        self.gtk_builder
+            .get_object::<gtk::Stack>("sidebar_stack")
+            .expect("Can't find sidebar_stack in ui file.")
+            .set_visible_child_name("sidebar_members");
+    }
 }
 
 /// State for the main thread.
@@ -708,6 +722,21 @@ impl App {
             let id = view.get_model().unwrap().get_value(&iter, 1);
             op.lock().unwrap().member_clicked(id.get().unwrap());
         });
+
+        let mbutton: gtk::Button = self.gtk_builder.get_object("members_hide_button")
+            .expect("Couldn't find members_hide_button in ui file.");
+        let mbutton2: gtk::Button = self.gtk_builder.get_object("members_show_button")
+            .expect("Couldn't find members_show_button in ui file.");
+
+        let op = self.op.clone();
+        mbutton.connect_clicked(move |_| {
+            op.lock().unwrap().hide_members();
+        });
+        let op = self.op.clone();
+        mbutton2.connect_clicked(move |_| {
+            op.lock().unwrap().show_members();
+        });
+
     }
 
     pub fn run(self) {
