@@ -306,10 +306,9 @@ impl Backend {
     }
 
     pub fn set_room(&self, roomid: String) -> Result<(), Error> {
-        self.get_room_detail(roomid.clone(), String::from("m.room.type"));
+        self.get_room_detail(roomid.clone(), String::from("m.room.topic"))?;
         self.get_room_avatar(roomid.clone())?;
         self.get_room_members(roomid.clone())?;
-        self.get_room_messages(roomid.clone())?;
 
         Ok(())
     }

@@ -263,6 +263,10 @@ impl AppOp {
         self.backend.send(BKCommand::SetRoom(self.active_room.clone())).unwrap();
     }
 
+    pub fn get_room_messages(&self) {
+        self.backend.send(BKCommand::GetRoomMessages(self.active_room.clone())).unwrap();
+    }
+
     pub fn set_room_detail(&self, key: String, value: String) {
         let k: &str = &key;
         match k {
@@ -561,6 +565,7 @@ impl App {
                     for m in ms {
                         theop.lock().unwrap().add_room_member(m);
                     }
+                    theop.lock().unwrap().get_room_messages();
                 },
                 Ok(BKResponse::RoomMemberAvatar(_, _)) => { },
                 Ok(BKResponse::SendMsg) => { },
