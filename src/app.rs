@@ -364,14 +364,20 @@ impl AppOp {
     fn build_room_msg_image(&self, msg: &backend::Message) -> gtk::Box {
         let bx = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         let image = gtk::Image::new();
-        println!("image url: {}", msg.thumb);
-        if let Ok(pixbuf) = Pixbuf::new_from_file_at_size(&msg.thumb, 400, 400) {
+
+        if let Ok(pixbuf) = Pixbuf::new_from_file_at_size(&msg.thumb, 200, 200) {
             image.set_from_pixbuf(&pixbuf);
         }
 
-        // TODO: add buttons to view full size and download
+        let viewbtn = gtk::Button::new();
+        let url = msg.url.clone();
+        viewbtn.connect_clicked(move |_| {
+            println!("Download and show a dialog: {}", url);
+        });
 
-        bx.add(&image);
+        viewbtn.set_image(&image);
+
+        bx.add(&viewbtn);
         bx
     }
 
