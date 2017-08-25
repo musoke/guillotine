@@ -23,6 +23,9 @@ use backend::BKCommand;
 use backend::BKResponse;
 use backend;
 
+use types::Member;
+use types::Message;
+
 
 #[derive(Debug)]
 pub enum Error {
@@ -40,7 +43,7 @@ struct AppOp {
     gtk_builder: gtk::Builder,
     backend: Sender<backend::BKCommand>,
     active_room: String,
-    members: HashMap<String, backend::Member>,
+    members: HashMap<String, Member>,
 }
 
 impl AppOp {
@@ -360,7 +363,7 @@ impl AppOp {
         bx
     }
 
-    fn build_room_msg_image(&self, msg: &backend::Message) -> gtk::Box {
+    fn build_room_msg_image(&self, msg: &Message) -> gtk::Box {
         let bx = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         let image = gtk::Image::new();
 
@@ -393,7 +396,7 @@ impl AppOp {
         date
     }
 
-    fn build_room_msg_info(&self, msg: &backend::Message) -> gtk::Box {
+    fn build_room_msg_info(&self, msg: &Message) -> gtk::Box {
         // info
         // +----------+------+
         // | username | date |
@@ -409,7 +412,7 @@ impl AppOp {
         info
     }
 
-    fn build_room_msg_content(&self, msg: &backend::Message) -> gtk::Box {
+    fn build_room_msg_content(&self, msg: &Message) -> gtk::Box {
         // content
         // +------+
         // | info |
@@ -436,7 +439,7 @@ impl AppOp {
 
     }
 
-    fn build_room_msg(&self, msg: backend::Message) -> gtk::Box {
+    fn build_room_msg(&self, msg: Message) -> gtk::Box {
         let avatar = self.build_room_msg_avatar(&msg.sender);
 
         // msg
@@ -454,7 +457,7 @@ impl AppOp {
         msg_widget
     }
 
-    pub fn add_room_message(&self, msg: backend::Message) {
+    pub fn add_room_message(&self, msg: Message) {
         let messages = self.gtk_builder
             .get_object::<gtk::ListBox>("message_list")
             .expect("Can't find message_list in ui file.");
@@ -467,7 +470,7 @@ impl AppOp {
         }
     }
 
-    pub fn add_room_member(&mut self, m: backend::Member) {
+    pub fn add_room_member(&mut self, m: Member) {
         let store: gtk::ListStore = self.gtk_builder.get_object("members_store")
             .expect("Couldn't find members_store in ui file.");
 
@@ -567,7 +570,6 @@ impl App {
                     }
                     theop.lock().unwrap().get_room_messages();
                 },
-                Ok(BKResponse::RoomMemberAvatar(_, _)) => { },
                 Ok(BKResponse::SendMsg) => { },
                 // errors
                 Ok(err) => {

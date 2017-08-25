@@ -1,5 +1,7 @@
 #[macro_use]
 mod util;
+mod error;
+mod types;
 mod backend;
 mod app;
 
