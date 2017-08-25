@@ -144,6 +144,7 @@ pub enum BKCommand {
     GetRoomAvatar(String),
     GetAvatarAsync(String, Sender<String>),
     SendMsg(String, String),
+    SetRoom(String),
     ShutDown,
 }
 
@@ -176,6 +177,7 @@ pub enum BKResponse {
     RoomMembersError(Error),
     RoomMemberAvatarError(Error),
     SendMsgError(Error),
+    SetRoomError(Error),
     CommandError(Error),
 }
 
@@ -274,6 +276,10 @@ impl Backend {
                 let r = self.send_msg(room, msg);
                 bkerror!(r, tx, BKResponse::SendMsgError);
             },
+            Ok(BKCommand::SetRoom(room)) => {
+                let r = self.set_room(room);
+                bkerror!(r, tx, BKResponse::SetRoomError);
+            },
             Ok(cmd) => {
                 tx.send(BKResponse::CommandNotFound(cmd)).unwrap();
             },
@@ -297,6 +303,15 @@ impl Backend {
         });
 
         apptx
+    }
+
+    pub fn set_room(&self, roomid: String) -> Result<(), Error> {
+        self.get_room_detail(roomid.clone(), String::from("m.room.type"));
+        self.get_room_avatar(roomid.clone())?;
+        self.get_room_members(roomid.clone())?;
+        self.get_room_messages(roomid.clone())?;
+
+        Ok(())
     }
 
     pub fn guest(&self, server: String) -> Result<(), Error> {
