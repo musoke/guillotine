@@ -15,7 +15,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::collections::HashMap;
 use self::url::Url;
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{Sender, Receiver};
+use std::sync::mpsc::channel;
+use std::sync::mpsc::RecvError;
 use std::io::Read;
 
 use std::fs::File;
@@ -27,6 +29,14 @@ use std::hash::{Hash, Hasher};
 
 use self::chrono::prelude::*;
 use self::time::Duration;
+
+macro_rules! bkerror {
+    ($result: ident, $tx: ident, $type: expr) => {
+        if let Err(e) = $result {
+            $tx.send($type(e)).unwrap();
+        }
+    }
+}
 
 macro_rules! get {
     ($url: expr, $attrs: expr, $okcb: expr, $errcb: expr) => {
@@ -121,7 +131,27 @@ pub struct Backend {
 }
 
 #[derive(Debug)]
+pub enum BKCommand {
+    Ping,
+    Login(String, String, String),
+    Guest(String),
+    GetUsername,
+    GetAvatar,
+    Sync,
+    GetRoomMessages(String),
+    GetRoomDetail(String, String),
+    GetRoomMembers(String),
+    GetRoomAvatar(String),
+    GetAvatarAsync(String, Sender<String>),
+    SendMsg(String, String),
+    ShutDown,
+}
+
+#[derive(Debug)]
 pub enum BKResponse {
+    Pong,
+    CommandNotFound(BKCommand),
+
     Token(String, String),
     Name(String),
     Avatar(String),
@@ -146,6 +176,7 @@ pub enum BKResponse {
     RoomMembersError(Error),
     RoomMemberAvatarError(Error),
     SendMsgError(Error),
+    CommandError(Error),
 }
 
 #[derive(Debug)]
@@ -186,6 +217,86 @@ impl Backend {
                     msgid: 1,
         };
         Backend { tx: tx, data: Arc::new(Mutex::new(data)) }
+    }
+
+    pub fn command_recv(&self, cmd: Result<BKCommand, RecvError>) -> bool {
+        let tx = &self.tx;
+
+        match cmd {
+            Ok(BKCommand::Ping) => {
+                tx.send(BKResponse::Pong).unwrap();
+            },
+            Ok(BKCommand::Login(user, passwd, server)) => {
+                let r = self.login(user, passwd, server);
+                bkerror!(r, tx, BKResponse::LoginError);
+            },
+            Ok(BKCommand::Guest(server)) => {
+                let r = self.guest(server);
+                bkerror!(r, tx, BKResponse::GuestLoginError);
+            },
+            Ok(BKCommand::Guest(server)) => {
+                let r = self.guest(server);
+                bkerror!(r, tx, BKResponse::GuestLoginError);
+            },
+            Ok(BKCommand::GetUsername) => {
+                let r = self.get_username();
+                bkerror!(r, tx, BKResponse::UserNameError);
+            },
+            Ok(BKCommand::GetAvatar) => {
+                let r = self.get_avatar();
+                bkerror!(r, tx, BKResponse::AvatarError);
+            },
+            Ok(BKCommand::Sync) => {
+                let r = self.sync();
+                bkerror!(r, tx, BKResponse::SyncError);
+            },
+            Ok(BKCommand::GetRoomMessages(room)) => {
+                let r = self.get_room_messages(room);
+                bkerror!(r, tx, BKResponse::RoomMessagesError);
+            },
+            Ok(BKCommand::GetRoomDetail(room, mtype)) => {
+                let r = self.get_room_detail(room, mtype);
+                bkerror!(r, tx, BKResponse::RoomDetailError);
+            },
+            Ok(BKCommand::GetRoomMembers(room)) => {
+                let r = self.get_room_members(room);
+                bkerror!(r, tx, BKResponse::RoomMembersError);
+            },
+            Ok(BKCommand::GetRoomAvatar(room)) => {
+                let r = self.get_room_avatar(room);
+                bkerror!(r, tx, BKResponse::RoomAvatarError);
+            },
+            Ok(BKCommand::GetAvatarAsync(sender, ctx)) => {
+                let r = self.get_avatar_async(&sender, ctx);
+                bkerror!(r, tx, BKResponse::CommandError);
+            },
+            Ok(BKCommand::SendMsg(room, msg)) => {
+                let r = self.send_msg(room, msg);
+                bkerror!(r, tx, BKResponse::SendMsgError);
+            },
+            Ok(cmd) => {
+                tx.send(BKResponse::CommandNotFound(cmd)).unwrap();
+            },
+            Ok(BKCommand::ShutDown) => { return false; },
+            Err(_) => { return false; }
+        };
+
+        true
+    }
+
+    pub fn run(self) -> Sender<BKCommand> {
+        let (apptx, rx): (Sender<BKCommand>, Receiver<BKCommand>) = channel();
+
+        thread::spawn(move || {
+            loop {
+                let cmd = rx.recv();
+                if ! self.command_recv(cmd) {
+                    break;
+                }
+            }
+        });
+
+        apptx
     }
 
     pub fn guest(&self, server: String) -> Result<(), Error> {

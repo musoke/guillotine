@@ -19,6 +19,8 @@ use self::gtk::prelude::*;
 use self::chrono::prelude::*;
 
 use backend::Backend;
+use backend::BKCommand;
+use backend::BKResponse;
 use backend;
 
 
@@ -36,7 +38,7 @@ const APP_ID: &'static str = "org.gnome.guillotine";
 
 struct AppOp {
     gtk_builder: gtk::Builder,
-    backend: Backend,
+    backend: Sender<backend::BKCommand>,
     active_room: String,
     members: HashMap<String, backend::Member>,
 }
@@ -69,11 +71,10 @@ impl AppOp {
             });
 
         self.show_loading();
-        self.backend.login(username.clone(), password.clone(), server_url.clone())
-            .unwrap_or_else(move |_| {
-                // TODO: show an error
-                println!("Error: Can't login with {} in {}", username, server_url);
-            });
+        let uname = username.clone();
+        let pass = password.clone();
+        let ser = server_url.clone();
+        self.backend.send(BKCommand::Login(uname, pass, ser)).unwrap();
         self.hide_popup();
     }
 
@@ -84,12 +85,12 @@ impl AppOp {
         };
 
         self.show_loading();
-        self.backend.guest(server_url).unwrap();
+        self.backend.send(BKCommand::Guest(server_url)).unwrap();
     }
 
     pub fn get_username(&self) {
-        self.backend.get_username().unwrap();
-        self.backend.get_avatar().unwrap();
+        self.backend.send(BKCommand::GetUsername).unwrap();
+        self.backend.send(BKCommand::GetAvatar).unwrap();
     }
 
     pub fn set_username(&self, username: &str) {
@@ -135,7 +136,7 @@ impl AppOp {
     }
 
     pub fn disconnect(&self) {
-        println!("Disconnecting");
+        self.backend.send(BKCommand::ShutDown).unwrap();
     }
 
     pub fn store_pass(&self, username: String, password: String, server: String) -> Result<(), Error> {
@@ -206,7 +207,7 @@ impl AppOp {
     }
 
     pub fn sync(&self) {
-        self.backend.sync().unwrap();
+        self.backend.send(BKCommand::Sync).unwrap();
     }
 
     pub fn set_rooms(&mut self, rooms: HashMap<String, String>) {
@@ -238,7 +239,7 @@ impl AppOp {
     }
 
     pub fn get_room_messages(&self) {
-        self.backend.get_room_messages(self.active_room.clone()).unwrap();
+        self.backend.send(BKCommand::GetRoomMessages(self.active_room.clone())).unwrap();
     }
 
     pub fn set_active_room(&mut self, room: String, name: String) {
@@ -263,9 +264,10 @@ impl AppOp {
         name_label.set_text(&name);
 
         // getting room details
-        self.backend.get_room_detail(self.active_room.clone(), String::from("m.room.topic")).unwrap();
-        self.backend.get_room_avatar(self.active_room.clone()).unwrap();
-        self.backend.get_room_members(self.active_room.clone()).unwrap();
+        let r = &self.active_room;
+        self.backend.send(BKCommand::GetRoomDetail(r.clone(), String::from("m.room.topic"))).unwrap();
+        self.backend.send(BKCommand::GetRoomAvatar(r.clone())).unwrap();
+        self.backend.send(BKCommand::GetRoomMembers(r.clone())).unwrap();
     }
 
     pub fn set_room_detail(&self, key: String, value: String) {
@@ -318,7 +320,7 @@ impl AppOp {
         let a = avatar.clone();
 
         let (tx, rx): (Sender<String>, Receiver<String>) = channel();
-        self.backend.get_avatar_async(sender, tx).unwrap();
+        self.backend.send(BKCommand::GetAvatarAsync(String::from(sender), tx)).unwrap();
         gtk::timeout_add(50, move || {
             match rx.try_recv() {
                 Err(_) => gtk::Continue(true),
@@ -486,7 +488,8 @@ impl AppOp {
     }
 
     pub fn send_message(&self, msg: String) {
-        self.backend.send_msg(self.active_room.clone(), msg).unwrap();
+        let room = self.active_room.clone();
+        self.backend.send(BKCommand::SendMsg(room, msg)).unwrap();
     }
 }
 
@@ -510,13 +513,16 @@ impl App {
         let gtk_app = gtk::Application::new(Some(APP_ID), gio::ApplicationFlags::empty())
             .expect("Failed to initialize GtkApplication");
 
-        let (tx, rx): (Sender<backend::BKResponse>, Receiver<backend::BKResponse>) = channel();
+        let (tx, rx): (Sender<BKResponse>, Receiver<BKResponse>) = channel();
+
+        let bk = Backend::new(tx);
+        let apptx = bk.run();
 
         let gtk_builder = gtk::Builder::new_from_file("res/main_window.glade");
         let op = Arc::new(Mutex::new(
             AppOp{
                 gtk_builder: gtk_builder.clone(),
-                backend: Backend::new(tx),
+                backend: apptx,
                 active_room: String::from(""),
                 members: HashMap::new(),
             }
@@ -526,37 +532,37 @@ impl App {
         gtk::timeout_add(50, move || {
             let recv = rx.try_recv();
             match recv {
-                Ok(backend::BKResponse::Token(uid, _)) => {
+                Ok(BKResponse::Token(uid, _)) => {
                     theop.lock().unwrap().set_username(&uid);
                     theop.lock().unwrap().get_username();
                     theop.lock().unwrap().sync();
                 },
-                Ok(backend::BKResponse::Name(username)) => {
+                Ok(BKResponse::Name(username)) => {
                     theop.lock().unwrap().set_username(&username);
                 },
-                Ok(backend::BKResponse::Avatar(path)) => {
+                Ok(BKResponse::Avatar(path)) => {
                     theop.lock().unwrap().set_avatar(&path);
                 },
-                Ok(backend::BKResponse::Sync) => {
+                Ok(BKResponse::Sync) => {
                     println!("SYNC");
                     theop.lock().unwrap().sync();
                 },
-                Ok(backend::BKResponse::Rooms(rooms)) => {
+                Ok(BKResponse::Rooms(rooms)) => {
                     theop.lock().unwrap().set_rooms(rooms);
                 },
-                Ok(backend::BKResponse::RoomDetail(key, value)) => {
+                Ok(BKResponse::RoomDetail(key, value)) => {
                     theop.lock().unwrap().set_room_detail(key, value);
                 },
-                Ok(backend::BKResponse::RoomAvatar(avatar)) => {
+                Ok(BKResponse::RoomAvatar(avatar)) => {
                     theop.lock().unwrap().set_room_avatar(avatar);
                 },
-                Ok(backend::BKResponse::RoomMessages(msgs)) => {
+                Ok(BKResponse::RoomMessages(msgs)) => {
                     for msg in msgs {
                         theop.lock().unwrap().add_room_message(msg);
                     }
                     theop.lock().unwrap().scroll_down();
                 },
-                Ok(backend::BKResponse::RoomMembers(members)) => {
+                Ok(BKResponse::RoomMembers(members)) => {
                     let mut ms = members;
                     ms.sort_by(|x, y| x.get_alias().to_lowercase().cmp(&y.get_alias().to_lowercase()));
                     for m in ms {
@@ -564,8 +570,8 @@ impl App {
                     }
                     theop.lock().unwrap().get_room_messages();
                 },
-                Ok(backend::BKResponse::RoomMemberAvatar(_, _)) => { },
-                Ok(backend::BKResponse::SendMsg) => { },
+                Ok(BKResponse::RoomMemberAvatar(_, _)) => { },
+                Ok(BKResponse::SendMsg) => { },
                 // errors
                 Ok(err) => {
                     println!("Query error: {:?}", err);
