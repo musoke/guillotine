@@ -39,31 +39,42 @@ macro_rules! bkerror {
 }
 
 macro_rules! get {
-    ($url: expr, $attrs: expr) => {
-        query!("get", $url, $attrs)
+    ($url: expr, $attrs: expr, $okcb: expr, $errcb: expr) => {
+        query!("get", $url, $attrs, $okcb, $errcb)
     };
-    ($url: expr) => {
-        query!("get", $url)
+    ($url: expr, $okcb: expr, $errcb: expr) => {
+        query!("get", $url, $okcb, $errcb)
     };
 }
 
 macro_rules! post {
-    ($url: expr, $attrs: expr) => {
-        query!("post", $url, $attrs)
+    ($url: expr, $attrs: expr, $okcb: expr, $errcb: expr) => {
+        query!("post", $url, $attrs, $okcb, $errcb)
     };
-    ($url: expr) => {
-        query!("post", $url)
+    ($url: expr, $okcb: expr, $errcb: expr) => {
+        query!("post", $url, $okcb, $errcb)
     };
 }
 
 macro_rules! query {
-    ($method: expr, $url: expr, $attrs: expr) => {
-        json_q($method, $url, $attrs)
+    ($method: expr, $url: expr, $attrs: expr, $okcb: expr, $errcb: expr) => {
+        thread::spawn(move || {
+            let js = json_q($method, $url, $attrs);
+
+            match js {
+                Ok(r) => {
+                    $okcb(r)
+                },
+                Err(err) => {
+                    $errcb(err)
+                }
+            }
+        });
     };
-    ($method: expr, $url: expr) => {{
+    ($method: expr, $url: expr, $okcb: expr, $errcb: expr) => {
         let attrs: HashMap<String, String> = HashMap::new();
-        query!($method, $url, &attrs)
-    }};
+        query!($method, $url, &attrs, $okcb, $errcb)
+    };
 }
 
 #[allow(unused_macros)]
@@ -295,7 +306,7 @@ impl Backend {
     }
 
     pub fn set_room(&self, roomid: String) -> Result<(), Error> {
-        self.get_room_detail(roomid.clone(), String::from("m.room.topic"))?;
+        self.get_room_detail(roomid.clone(), String::from("m.room.type"));
         self.get_room_avatar(roomid.clone())?;
         self.get_room_members(roomid.clone())?;
         self.get_room_messages(roomid.clone())?;
@@ -310,16 +321,16 @@ impl Backend {
 
         let data = self.data.clone();
         let tx = self.tx.clone();
-        match post!(&url) {
-            Ok(r) => {
+        post!(&url,
+            |r: JsonValue| {
                 let uid = String::from(r["user_id"].as_str().unwrap_or(""));
                 let tk = String::from(r["access_token"].as_str().unwrap_or(""));
                 data.lock().unwrap().user_id = uid.clone();
                 data.lock().unwrap().access_token = tk.clone();
                 tx.send(BKResponse::Token(uid, tk)).unwrap();
             },
-            Err(err) => { tx.send(BKResponse::GuestLoginError(err)).unwrap() }
-        };
+            |err| { tx.send(BKResponse::GuestLoginError(err)).unwrap() }
+        );
 
         Ok(())
     }
@@ -336,8 +347,8 @@ impl Backend {
 
         let data = self.data.clone();
         let tx = self.tx.clone();
-        match post!(&url, &map) {
-            Ok(r) => {
+        post!(&url, &map,
+            |r: JsonValue| {
                 let uid = String::from(r["user_id"].as_str().unwrap_or(""));
                 let tk = String::from(r["access_token"].as_str().unwrap_or(""));
 
@@ -345,8 +356,8 @@ impl Backend {
                 data.lock().unwrap().access_token = tk.clone();
                 tx.send(BKResponse::Token(uid, tk)).unwrap();
             },
-            Err(err) => { tx.send(BKResponse::LoginError(err)).unwrap() }
-        };
+            |err| { tx.send(BKResponse::LoginError(err)).unwrap() }
+        );
 
         Ok(())
     }
@@ -357,13 +368,13 @@ impl Backend {
         let url = baseu.join("/_matrix/client/r0/profile/")?.join(&id)?.join("displayname")?;
 
         let tx = self.tx.clone();
-        match get!(&url) {
-            Ok(r) => {
+        get!(&url,
+            |r: JsonValue| {
                 let name = String::from(r["displayname"].as_str().unwrap_or(""));
                 tx.send(BKResponse::Name(name)).unwrap();
             },
-            Err(err) => { tx.send(BKResponse::UserNameError(err)).unwrap() }
-        }
+            |err| { tx.send(BKResponse::UserNameError(err)).unwrap() }
+        );
 
         Ok(())
     }
@@ -418,15 +429,17 @@ impl Backend {
 
         let tx = self.tx.clone();
         let data = self.data.clone();
-        match get!(&url) {
-            Ok(r) => {
+        get!(&url,
+            |r: JsonValue| {
                 let next_batch = String::from(r["next_batch"].as_str().unwrap_or(""));
                 if since.is_empty() {
-                    let rooms = get_rooms_from_json(r, &userid)?;
+                    let rooms = get_rooms_from_json(r, &userid).unwrap();
                     tx.send(BKResponse::Rooms(rooms)).unwrap();
                 } else {
-                    let msgs = get_rooms_timeline_from_json(&baseu, r)?;
-                    tx.send(BKResponse::RoomMessages(msgs)).unwrap();
+                    match get_rooms_timeline_from_json(&baseu, r) {
+                        Ok(msgs) => tx.send(BKResponse::RoomMessages(msgs)).unwrap(),
+                        Err(err) => tx.send(BKResponse::RoomMessagesError(err)).unwrap(),
+                    }
                     // TODO: treat all events
                     //println!("sync: {:#?}", r);
                 }
@@ -435,8 +448,8 @@ impl Backend {
 
                 tx.send(BKResponse::Sync).unwrap();
             },
-            Err(err) => { tx.send(BKResponse::SyncError(err)).unwrap() }
-        };
+            |err| { tx.send(BKResponse::SyncError(err)).unwrap() }
+        );
 
         Ok(())
     }
@@ -450,8 +463,8 @@ impl Backend {
 
         let tx = self.tx.clone();
         let keys = key.clone();
-        match get!(&url) {
-            Ok(r) => {
+        get!(&url,
+            |r: JsonValue| {
                 let mut value = String::from("");
                 let k = keys.split('.').last().unwrap();
 
@@ -461,8 +474,8 @@ impl Backend {
                 }
                 tx.send(BKResponse::RoomDetail(key, value)).unwrap();
             },
-            Err(err) => { tx.send(BKResponse::RoomDetailError(err)).unwrap() }
-        };
+            |err| { tx.send(BKResponse::RoomDetailError(err)).unwrap() }
+        );
 
         Ok(())
     }
@@ -476,8 +489,8 @@ impl Backend {
         url = url.join(&format!("?access_token={}", tk))?;
 
         let tx = self.tx.clone();
-        match get!(&url) {
-            Ok(r) => {
+        get!(&url,
+            |r: JsonValue| {
                 let avatar;
 
                 match r["url"].as_str() {
@@ -490,8 +503,8 @@ impl Backend {
                 }
                 tx.send(BKResponse::RoomAvatar(avatar)).unwrap();
             },
-            Err(err) => { tx.send(BKResponse::RoomAvatarError(err)).unwrap() }
-        };
+            |err| { tx.send(BKResponse::RoomAvatarError(err)).unwrap() }
+        );
 
         Ok(())
     }
@@ -503,11 +516,10 @@ impl Backend {
         url = url.join(&format!("?access_token={}&dir=b&limit=20", tk))?;
 
         let tx = self.tx.clone();
-        match get!(&url) {
-            Ok(r) => {
+        get!(&url,
+            |r: JsonValue| {
                 let mut ms: Vec<Message> = vec![];
-                let arr = r["chunk"].as_array().ok_or(Error::BackendError)?;
-                for msg in arr.iter().rev() {
+                for msg in r["chunk"].as_array().unwrap().iter().rev() {
                     if msg["type"].as_str().unwrap_or("") != "m.room.message" {
                         continue;
                     }
@@ -517,8 +529,8 @@ impl Backend {
                 }
                 tx.send(BKResponse::RoomMessages(ms)).unwrap();
             },
-            Err(err) => { tx.send(BKResponse::RoomMessagesError(err)).unwrap() }
-        };
+            |err| { tx.send(BKResponse::RoomMessagesError(err)).unwrap() }
+        );
 
         Ok(())
     }
@@ -530,32 +542,31 @@ impl Backend {
         url = url.join(&format!("?access_token={}", tk))?;
 
         let tx = self.tx.clone();
-        match get!(&url) {
-            Ok(r) => {
+        get!(&url,
+            |r: JsonValue| {
                 //println!("{:#?}", r);
                 let mut ms: Vec<Member> = vec![];
-                let arr = r["chunk"].as_array().ok_or(Error::BackendError)?;
-                for member in arr.iter().rev() {
-                    if member["type"].as_str().unwrap_or("") != "m.room.member" {
+                for member in r["chunk"].as_array().unwrap().iter().rev() {
+                    if member["type"].as_str().unwrap() != "m.room.member" {
                         continue;
                     }
 
                     let content = &member["content"];
-                    if content["membership"].as_str().unwrap_or("") != "join" {
+                    if content["membership"].as_str().unwrap() != "join" {
                         continue;
                     }
 
                     let m = Member {
-                        uid: String::from(member["sender"].as_str().unwrap_or("")),
                         alias: String::from(content["displayname"].as_str().unwrap_or("")),
+                        uid: String::from(member["sender"].as_str().unwrap()),
                         avatar: String::from(content["avatar_url"].as_str().unwrap_or("")),
                     };
                     ms.push(m);
                 }
                 tx.send(BKResponse::RoomMembers(ms)).unwrap();
             },
-            Err(err) => { tx.send(BKResponse::RoomMembersError(err)).unwrap() }
-        };
+            |err| { tx.send(BKResponse::RoomMembersError(err)).unwrap() }
+        );
 
         Ok(())
     }
@@ -631,10 +642,12 @@ impl Backend {
         attrs.insert(String::from("msgtype"), String::from("m.text"));
 
         let tx = self.tx.clone();
-        match query!("put", &url, &attrs) {
-            Ok(_) => { tx.send(BKResponse::SendMsg).unwrap(); },
-            Err(err) => { tx.send(BKResponse::SendMsgError(err)).unwrap(); }
-        };
+        query!("put", &url, &attrs,
+            move |_| {
+                tx.send(BKResponse::SendMsg).unwrap();
+            },
+            |err| { tx.send(BKResponse::SendMsgError(err)).unwrap(); }
+        );
 
         Ok(())
     }
