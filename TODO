@@ -3,6 +3,7 @@ Fixs:
     * Sort rooms by last message or fav?
 
 Functionality:
+    * Infinite scroll, load more messages when going up
     * Room search
     * Room creation
     * Leave room
@@ -13,10 +14,10 @@ Functionality:
     * Register
     * Show media messages (images / videos)
     * Send media messages (images / videos)
+    * Store last read message to show differently
 
 Other stuff:
     * Set the app name correctly to show in the shell topbar
-    * Make sidebars hideables
 
 Encription:
     https://matrix.org/docs/guides/e2e_implementation.html
