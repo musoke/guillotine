@@ -373,16 +373,14 @@ impl Backend {
         let userid = self.data.lock().unwrap().user_id.clone();
 
         let tx = self.tx.clone();
-        thread::spawn(move || {
-            match get_user_avatar(&baseu, &userid) {
-                Ok(fname) => {
-                    tx.send(BKResponse::Avatar(fname)).unwrap();
-                },
-                Err(err) => {
-                    tx.send(BKResponse::AvatarError(err)).unwrap();
-                }
+        match get_user_avatar(&baseu, &userid) {
+            Ok(fname) => {
+                tx.send(BKResponse::Avatar(fname)).unwrap();
+            },
+            Err(err) => {
+                tx.send(BKResponse::AvatarError(err)).unwrap();
             }
-        });
+        };
 
         Ok(())
     }
@@ -564,16 +562,14 @@ impl Backend {
         let baseu = self.get_base_url()?;
 
         let tx = self.tx.clone();
-        thread::spawn(move || {
-            match thumb!(&baseu, &avatar_url) {
-                Ok(fname) => {
-                    tx.send(BKResponse::RoomMemberAvatar(memberid, fname)).unwrap();
-                },
-                Err(err) => {
-                    tx.send(BKResponse::RoomMemberAvatarError(err)).unwrap();
-                }
+        match thumb!(&baseu, &avatar_url) {
+            Ok(fname) => {
+                tx.send(BKResponse::RoomMemberAvatar(memberid, fname)).unwrap();
+            },
+            Err(err) => {
+                tx.send(BKResponse::RoomMemberAvatarError(err)).unwrap();
             }
-        });
+        }
 
         Ok(())
     }
@@ -588,10 +584,8 @@ impl Backend {
         let base = self.get_base_url()?;
 
         let u = url.clone();
-        thread::spawn(move || {
-            let fname = thumb!(&base, &u).unwrap();
-            tx.send(fname).unwrap();
-        });
+        let fname = thumb!(&base, &u)?;
+        tx.send(fname).unwrap();
 
         Ok(())
     }
@@ -600,12 +594,10 @@ impl Backend {
         let baseu = self.get_base_url()?;
 
         let u = String::from(uid);
-        thread::spawn(move || {
-            match get_user_avatar(&baseu, &u) {
-                Ok(fname) => { tx.send(fname).unwrap(); },
-                Err(_) => { tx.send(String::from("")).unwrap(); }
-            };
-        });
+        match get_user_avatar(&baseu, &u) {
+            Ok(fname) => { tx.send(fname).unwrap(); },
+            Err(_) => { tx.send(String::from("")).unwrap(); }
+        };
 
         Ok(())
     }
