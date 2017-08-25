@@ -1,6 +1,4 @@
 Fixs:
-    * Show loading feedback
-    * Fix messages scroll
     * Ignore launched threads when changing room...
     * Sort rooms by last message or fav?
 

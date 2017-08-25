@@ -73,7 +73,7 @@ impl AppOp {
                 println!("Error: Can't store the password using libsecret");
             });
 
-        self.show_loading();
+        self.show_user_loading();
         let uname = username.clone();
         let pass = password.clone();
         let ser = server_url.clone();
@@ -87,7 +87,7 @@ impl AppOp {
             None => String::from("https://matrix.org")
         };
 
-        self.show_loading();
+        self.show_user_loading();
         self.backend.send(BKCommand::Guest(server_url)).unwrap();
     }
 
@@ -125,11 +125,13 @@ impl AppOp {
             .set_visible_child_name("user_connected_page");
     }
 
-    pub fn show_loading(&self) {
+    pub fn show_user_loading(&self) {
         self.gtk_builder
             .get_object::<gtk::Stack>("user_button_stack")
             .expect("Can't find user_button_stack in ui file.")
             .set_visible_child_name("user_loading_page");
+
+        self.set_loading(true);
     }
 
     pub fn hide_popup(&self) {
@@ -209,6 +211,18 @@ impl AppOp {
         }
     }
 
+    pub fn set_loading(&self, t: bool) {
+        let s = self.gtk_builder
+            .get_object::<gtk::Stack>("room_view_stack")
+            .expect("Can't find room_view_stack in ui file.");
+
+        if t {
+            s.set_visible_child_name("loading");
+        } else {
+            s.set_visible_child_name("room_view");
+        }
+    }
+
     pub fn sync(&self) {
         self.backend.send(BKCommand::Sync).unwrap();
     }
@@ -243,6 +257,8 @@ impl AppOp {
 
     pub fn set_active_room(&mut self, room: String, name: String) {
         self.active_room = room;
+
+        self.set_loading(true);
 
         let messages = self.gtk_builder
             .get_object::<gtk::ListBox>("message_list")
@@ -561,6 +577,7 @@ impl App {
                         theop.lock().unwrap().add_room_message(msg);
                     }
                     theop.lock().unwrap().scroll_down();
+                    theop.lock().unwrap().set_loading(false);
                 },
                 Ok(BKResponse::RoomMembers(members)) => {
                     let mut ms = members;
