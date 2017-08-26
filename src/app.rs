@@ -46,6 +46,12 @@ struct AppOp {
     members: HashMap<String, Member>,
 }
 
+#[derive(Debug)]
+enum MsgPos {
+    Top,
+    Bottom,
+}
+
 impl AppOp {
     pub fn login(&self) {
         let user_entry: gtk::Entry = self.gtk_builder.get_object("login_username")
@@ -455,7 +461,7 @@ impl AppOp {
 
     }
 
-    fn build_room_msg(&self, msg: Message) -> gtk::Box {
+    fn build_room_msg(&self, msg: &Message) -> gtk::Box {
         let avatar = self.build_room_msg_avatar(&msg.sender);
 
         // msg
@@ -463,7 +469,7 @@ impl AppOp {
         // | avatar | content |
         // +--------+---------+
         let msg_widget = gtk::Box::new(gtk::Orientation::Horizontal, 5);
-        let content = self.build_room_msg_content(&msg);
+        let content = self.build_room_msg_content(msg);
 
         msg_widget.pack_start(&avatar, false, false, 5);
         msg_widget.pack_start(&content, true, true, 0);
@@ -473,14 +479,20 @@ impl AppOp {
         msg_widget
     }
 
-    pub fn add_room_message(&self, msg: Message) {
+    pub fn add_room_message(&self, msg: &Message, msgpos: MsgPos) {
         let messages = self.gtk_builder
             .get_object::<gtk::ListBox>("message_list")
             .expect("Can't find message_list in ui file.");
 
         if msg.room == self.active_room {
             let msg = self.build_room_msg(msg);
-            messages.add(&msg);
+
+
+            match msgpos {
+                MsgPos::Bottom => messages.add(&msg),
+                MsgPos::Top => messages.prepend(&msg),
+            };
+
         } else {
             // TODO: update the unread messages count in room list
         }
@@ -520,6 +532,11 @@ impl AppOp {
             .get_object::<gtk::Stack>("sidebar_stack")
             .expect("Can't find sidebar_stack in ui file.")
             .set_visible_child_name("sidebar_members");
+    }
+
+    pub fn load_more_messages(&self) {
+        let room = self.active_room.clone();
+        self.backend.send(BKCommand::GetRoomMessagesTo(room)).unwrap();
     }
 }
 
@@ -588,10 +605,15 @@ impl App {
                 },
                 Ok(BKResponse::RoomMessages(msgs)) => {
                     for msg in msgs {
-                        theop.lock().unwrap().add_room_message(msg);
+                        theop.lock().unwrap().add_room_message(&msg, MsgPos::Bottom);
                     }
                     theop.lock().unwrap().scroll_down();
                     theop.lock().unwrap().set_loading(false);
+                },
+                Ok(BKResponse::RoomMessagesTo(msgs)) => {
+                    for msg in msgs.iter().rev() {
+                        theop.lock().unwrap().add_room_message(msg, MsgPos::Top);
+                    }
                 },
                 Ok(BKResponse::RoomMembers(members)) => {
                     let mut ms = members;
@@ -648,7 +670,22 @@ impl App {
         self.connect_room_treeview();
         self.connect_member_treeview();
 
+        self.connect_msg_scroll();
+
         self.connect_send();
+    }
+
+    fn connect_msg_scroll(&self) {
+        let s = self.gtk_builder
+            .get_object::<gtk::ScrolledWindow>("messages_scroll")
+            .expect("Can't find message_scroll in ui file.");
+
+        let op = self.op.clone();
+        s.connect_edge_overshot(move |_, dir| {
+            if dir == gtk::PositionType::Top {
+                op.lock().unwrap().load_more_messages();
+            }
+        });
     }
 
     fn connect_send(&self) {

@@ -30,6 +30,8 @@ pub struct BackendData {
     server_url: String,
     since: String,
     msgid: i32,
+    msgs_batch_start: String,
+    msgs_batch_end: String,
 }
 
 pub struct Backend {
@@ -45,6 +47,7 @@ pub enum BKCommand {
     GetAvatar,
     Sync,
     GetRoomMessages(String),
+    GetRoomMessagesTo(String),
     GetAvatarAsync(String, Sender<String>),
     SendMsg(String, String),
     SetRoom(String),
@@ -61,6 +64,7 @@ pub enum BKResponse {
     RoomDetail(String, String),
     RoomAvatar(String),
     RoomMessages(Vec<Message>),
+    RoomMessagesTo(Vec<Message>),
     RoomMembers(Vec<Member>),
     SendMsg,
 
@@ -88,6 +92,8 @@ impl Backend {
                     server_url: String::from("https://matrix.org"),
                     since: String::from(""),
                     msgid: 1,
+                    msgs_batch_start: String::from(""),
+                    msgs_batch_end: String::from(""),
         };
         Backend { tx: tx, data: Arc::new(Mutex::new(data)) }
     }
@@ -117,7 +123,11 @@ impl Backend {
                 bkerror!(r, tx, BKResponse::SyncError);
             },
             Ok(BKCommand::GetRoomMessages(room)) => {
-                let r = self.get_room_messages(room);
+                let r = self.get_room_messages(room, false);
+                bkerror!(r, tx, BKResponse::RoomMessagesError);
+            },
+            Ok(BKCommand::GetRoomMessagesTo(room)) => {
+                let r = self.get_room_messages(room, true);
                 bkerror!(r, tx, BKResponse::RoomMessagesError);
             },
             Ok(BKCommand::GetAvatarAsync(sender, ctx)) => {
@@ -361,16 +371,29 @@ impl Backend {
         Ok(())
     }
 
-    pub fn get_room_messages(&self, roomid: String) -> Result<(), Error> {
+    pub fn get_room_messages(&self, roomid: String, to: bool) -> Result<(), Error> {
         let baseu = self.get_base_url()?;
         let tk = self.data.lock().unwrap().access_token.clone();
         let mut url = baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid.clone() + "/"))?.join("messages")?;
-        url = url.join(&format!("?access_token={}&dir=b&limit=20", tk))?;
+
+        let mut params = format!("?access_token={}&dir=b&limit=8", tk);
+
+        if to {
+            let msg_batch = self.data.lock().unwrap().msgs_batch_end.clone();
+            params = params + &format!("&from={}", msg_batch);
+        }
+        url = url.join(&params)?;
+
 
         let tx = self.tx.clone();
+        let data = self.data.clone();
         get!(&url,
             |r: JsonValue| {
                 let mut ms: Vec<Message> = vec![];
+
+                data.lock().unwrap().msgs_batch_start = String::from(r["start"].as_str().unwrap_or(""));
+                data.lock().unwrap().msgs_batch_end = String::from(r["end"].as_str().unwrap_or(""));
+
                 for msg in r["chunk"].as_array().unwrap().iter().rev() {
                     if msg["type"].as_str().unwrap_or("") != "m.room.message" {
                         continue;
@@ -379,7 +402,10 @@ impl Backend {
                     let m = parse_room_message(&baseu, roomid.clone(), msg);
                     ms.push(m);
                 }
-                tx.send(BKResponse::RoomMessages(ms)).unwrap();
+                match to {
+                    false => tx.send(BKResponse::RoomMessages(ms)).unwrap(),
+                    true => tx.send(BKResponse::RoomMessagesTo(ms)).unwrap(),
+                };
             },
             |err| { tx.send(BKResponse::RoomMessagesError(err)).unwrap() }
         );

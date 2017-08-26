@@ -3,7 +3,8 @@ Fixs:
     * Sort rooms by last message or fav?
 
 Functionality:
-    * Infinite scroll, load more messages when going up
+    * Infinite scroll is done, but we need a button at the top, because the
+      event is send only if the scroll exists
     * Room search
     * Room creation
     * Leave room
