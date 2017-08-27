@@ -75,6 +75,57 @@ impl AppOp {
         self.connect(username, password, server_entry.get_text());
     }
 
+    pub fn register(&self) {
+        let user_entry: gtk::Entry = self.gtk_builder.get_object("register_username")
+            .expect("Can't find register_username in ui file.");
+        let pass_entry: gtk::Entry = self.gtk_builder.get_object("register_password")
+            .expect("Can't find register_password in ui file.");
+        let pass_conf: gtk::Entry = self.gtk_builder.get_object("register_password_confirm")
+            .expect("Can't find register_password_confirm in ui file.");
+        let server_entry: gtk::Entry = self.gtk_builder.get_object("register_server")
+            .expect("Can't find register_server in ui file.");
+
+        let username = match user_entry.get_text() { Some(s) => s, None => String::from("") };
+        let password = match pass_entry.get_text() { Some(s) => s, None => String::from("") };
+        let passconf = match pass_conf.get_text() { Some(s) => s, None => String::from("") };
+
+        if password != passconf {
+            let window: gtk::Window = self.gtk_builder.get_object("main_window")
+                .expect("Couldn't find main_window in ui file.");
+            let dialog = gtk::MessageDialog::new(Some(&window),
+                                                 gtk::DIALOG_MODAL,
+                                                 gtk::MessageType::Warning,
+                                                 gtk::ButtonsType::Ok,
+                                                 "Passwords didn't match, try again");
+            dialog.show();
+
+            dialog.connect_response(move |d, _| {
+                d.destroy();
+            });
+
+            return;
+        }
+
+        let server_url = match server_entry.get_text() {
+            Some(s) => s,
+            None => String::from("https://matrix.org")
+        };
+
+        //self.store_pass(username.clone(), password.clone(), server_url.clone())
+        //    .unwrap_or_else(|_| {
+        //        // TODO: show an error
+        //        println!("Error: Can't store the password using libsecret");
+        //    });
+
+        self.show_user_loading();
+        let uname = username.clone();
+        let pass = password.clone();
+        let ser = server_url.clone();
+        self.backend.send(BKCommand::Register(uname, pass, ser)).unwrap();
+        self.hide_popup();
+        self.clear_room_list();
+    }
+
     pub fn connect(&self, username: String, password: String, server: Option<String>) {
         let server_url = match server {
             Some(s) => s,
@@ -700,6 +751,7 @@ impl App {
 
         self.connect_user_button();
         self.connect_login_button();
+        self.connect_register_button();
         self.connect_guest_button();
 
         self.connect_room_treeview();
@@ -780,6 +832,14 @@ impl App {
 
         let op = self.op.clone();
         login_btn.connect_clicked(move |_| op.lock().unwrap().login());
+    }
+
+    fn connect_register_button(&self) {
+        let btn: gtk::Button = self.gtk_builder.get_object("register_button")
+            .expect("Couldn't find register_button in ui file.");
+
+        let op = self.op.clone();
+        btn.connect_clicked(move |_| op.lock().unwrap().register());
     }
 
     fn connect_guest_button(&self) {

@@ -42,6 +42,7 @@ pub struct Backend {
 #[derive(Debug)]
 pub enum BKCommand {
     Login(String, String, String),
+    Register(String, String, String),
     Guest(String),
     GetUsername,
     GetAvatar,
@@ -104,6 +105,10 @@ impl Backend {
         match cmd {
             Ok(BKCommand::Login(user, passwd, server)) => {
                 let r = self.login(user, passwd, server);
+                bkerror!(r, tx, BKResponse::LoginError);
+            },
+            Ok(BKCommand::Register(user, passwd, server)) => {
+                let r = self.register(user, passwd, server);
                 bkerror!(r, tx, BKResponse::LoginError);
             },
             Ok(BKCommand::Guest(server)) => {
@@ -205,15 +210,49 @@ impl Backend {
         let url = Url::parse(&s)?.join("/_matrix/client/r0/login")?;
         self.data.lock().unwrap().server_url = s;
 
-        let mut map: HashMap<String, String> = HashMap::new();
-        map.insert(String::from("type"), String::from("m.login.password"));
-        map.insert(String::from("user"), user);
-        map.insert(String::from("password"), password);
+        let attrs = json!({
+            "type": "m.login.password",
+            "user": user,
+            "password": password
+        });
 
         let data = self.data.clone();
         let tx = self.tx.clone();
-        post!(&url, &map,
+        post!(&url, &attrs,
             |r: JsonValue| {
+                let uid = String::from(r["user_id"].as_str().unwrap_or(""));
+                let tk = String::from(r["access_token"].as_str().unwrap_or(""));
+
+                data.lock().unwrap().user_id = uid.clone();
+                data.lock().unwrap().access_token = tk.clone();
+                data.lock().unwrap().since = String::from("");
+                data.lock().unwrap().msgs_batch_end = String::from("");
+                data.lock().unwrap().msgs_batch_start = String::from("");
+                tx.send(BKResponse::Token(uid, tk)).unwrap();
+            },
+            |err| { tx.send(BKResponse::LoginError(err)).unwrap() }
+        );
+
+        Ok(())
+    }
+
+    pub fn register(&self, user: String, password: String, server: String) -> Result<(), Error> {
+        let s = server.clone();
+        let url = Url::parse(&s).unwrap().join("/_matrix/client/r0/register?kind=user")?;
+        self.data.lock().unwrap().server_url = s;
+
+        let attrs = json!({
+            "auth": {"type": "m.login.password"},
+            "username": user,
+            "bind_email": false,
+            "password": password
+        });
+
+        let data = self.data.clone();
+        let tx = self.tx.clone();
+        post!(&url, &attrs,
+            |r: JsonValue| {
+                println!("RESPONSE: {:#?}", r);
                 let uid = String::from(r["user_id"].as_str().unwrap_or(""));
                 let tk = String::from(r["access_token"].as_str().unwrap_or(""));
 
@@ -492,9 +531,10 @@ impl Backend {
         url = url.join(&format!("{}", msgid))?;
         url = url.join(&format!("?access_token={}", tk))?;
 
-        let mut attrs: HashMap<String, String> = HashMap::new();
-        attrs.insert(String::from("body"), msg);
-        attrs.insert(String::from("msgtype"), String::from("m.text"));
+        let attrs = json!({
+            "body": msg,
+            "msgtype": "m.text"
+        });
 
         let tx = self.tx.clone();
         query!("put", &url, &attrs,

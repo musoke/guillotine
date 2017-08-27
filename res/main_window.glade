@@ -738,21 +738,7 @@ Join a room to start to chat</property>
                 <property name="orientation">vertical</property>
                 <property name="spacing">2</property>
                 <child>
-                  <object class="GtkEntry" id="register_email_entry">
-                    <property name="visible">True</property>
-                    <property name="can_focus">True</property>
-                    <property name="secondary_icon_name">emblem-mail</property>
-                    <property name="placeholder_text" translatable="yes">Email (optional)</property>
-                    <property name="input_purpose">email</property>
-                  </object>
-                  <packing>
-                    <property name="expand">False</property>
-                    <property name="fill">True</property>
-                    <property name="position">0</property>
-                  </packing>
-                </child>
-                <child>
-                  <object class="GtkEntry" id="register_username_entry">
+                  <object class="GtkEntry" id="register_username">
                     <property name="visible">True</property>
                     <property name="can_focus">True</property>
                     <property name="secondary_icon_name">face-wink</property>
@@ -765,10 +751,10 @@ Join a room to start to chat</property>
                   </packing>
                 </child>
                 <child>
-                  <object class="GtkEntry" id="register_password_entry">
+                  <object class="GtkEntry" id="register_password">
                     <property name="visible">True</property>
-                    <property name="visibility">False</property>
                     <property name="can_focus">True</property>
+                    <property name="visibility">False</property>
                     <property name="secondary_icon_name">dialog-password</property>
                     <property name="placeholder_text" translatable="yes">Password</property>
                     <property name="input_purpose">password</property>
@@ -780,10 +766,10 @@ Join a room to start to chat</property>
                   </packing>
                 </child>
                 <child>
-                  <object class="GtkEntry" id="register_password_confirm_entry">
+                  <object class="GtkEntry" id="register_password_confirm">
                     <property name="visible">True</property>
-                    <property name="visibility">False</property>
                     <property name="can_focus">True</property>
+                    <property name="visibility">False</property>
                     <property name="secondary_icon_name">dialog-password</property>
                     <property name="placeholder_text" translatable="yes">Repeat the password</property>
                     <property name="input_purpose">password</property>

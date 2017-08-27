@@ -105,7 +105,7 @@ macro_rules! query {
         });
     };
     ($method: expr, $url: expr, $okcb: expr, $errcb: expr) => {
-        let attrs: HashMap<String, String> = HashMap::new();
+        let attrs = json!(null);
         query!($method, $url, &attrs, $okcb, $errcb)
     };
 }
@@ -234,7 +234,7 @@ pub fn age_to_datetime(age: i64) -> DateTime<Local> {
     now - diff
 }
 
-pub fn json_q(method: &str, url: &Url, attrs: &HashMap<String, String>) -> Result<JsonValue, Error> {
+pub fn json_q(method: &str, url: &Url, attrs: &JsonValue) -> Result<JsonValue, Error> {
     let client = reqwest::Client::new()?;
 
     let mut conn = match method {
@@ -244,7 +244,7 @@ pub fn json_q(method: &str, url: &Url, attrs: &HashMap<String, String>) -> Resul
         _ => client.get(url.as_str())?,
     };
 
-    let conn2 = conn.json(&attrs)?;
+    let conn2 = conn.json(attrs)?;
     let mut res = conn2.send()?;
 
     //let mut content = String::new();
@@ -259,7 +259,7 @@ pub fn json_q(method: &str, url: &Url, attrs: &HashMap<String, String>) -> Resul
 
 pub fn get_user_avatar(baseu: &Url, userid: &str) -> Result<String, Error> {
     let url = baseu.join("/_matrix/client/r0/profile/")?.join(userid)?;
-    let attrs: HashMap<String, String> = HashMap::new();
+    let attrs = json!(null);
 
     match json_q("get", &url, &attrs) {
         Ok(js) => {
@@ -281,7 +281,7 @@ pub fn get_room_st(base: &Url, tk: &str, roomid: &str) -> Result<JsonValue, Erro
     let mut url = base.join("/_matrix/client/r0/rooms/")?
         .join(&(format!("{}/state", roomid)))?;
     url = url.join(&format!("?access_token={}", tk))?;
-    let attrs: HashMap<String, String> = HashMap::new();
+    let attrs = json!(null);
     let st = json_q("get", &url, &attrs)?;
     Ok(st)
 }
