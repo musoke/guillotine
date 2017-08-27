@@ -53,6 +53,13 @@ enum MsgPos {
     Bottom,
 }
 
+#[derive(Debug)]
+enum RoomPanel {
+    Room,
+    NoRoom,
+    Loading,
+}
+
 impl AppOp {
     pub fn login(&self) {
         let user_entry: gtk::Entry = self.gtk_builder.get_object("login_username")
@@ -86,6 +93,7 @@ impl AppOp {
         let ser = server_url.clone();
         self.backend.send(BKCommand::Login(uname, pass, ser)).unwrap();
         self.hide_popup();
+        self.clear_room_list();
     }
 
     pub fn connect_guest(&self, server: Option<String>) {
@@ -96,6 +104,8 @@ impl AppOp {
 
         self.show_user_loading();
         self.backend.send(BKCommand::Guest(server_url)).unwrap();
+        self.hide_popup();
+        self.clear_room_list();
     }
 
     pub fn get_username(&self) {
@@ -138,7 +148,7 @@ impl AppOp {
             .expect("Can't find user_button_stack in ui file.")
             .set_visible_child_name("user_loading_page");
 
-        self.set_loading(true);
+        self.room_panel(RoomPanel::Loading);
     }
 
     pub fn hide_popup(&self) {
@@ -218,16 +228,18 @@ impl AppOp {
         }
     }
 
-    pub fn set_loading(&self, t: bool) {
+    pub fn room_panel(&self, t: RoomPanel) {
         let s = self.gtk_builder
             .get_object::<gtk::Stack>("room_view_stack")
             .expect("Can't find room_view_stack in ui file.");
 
-        if t {
-            s.set_visible_child_name("loading");
-        } else {
-            s.set_visible_child_name("room_view");
-        }
+        let v = match t {
+            RoomPanel::Loading => "loading",
+            RoomPanel::Room => "room_view",
+            RoomPanel::NoRoom => "noroom",
+        };
+
+        s.set_visible_child_name(v);
     }
 
     pub fn sync(&self) {
@@ -259,13 +271,21 @@ impl AppOp {
 
         if let Some(def) = default {
             self.set_active_room(def.1, def.0);
+        } else {
+            self.room_panel(RoomPanel::NoRoom);
         }
+    }
+
+    pub fn clear_room_list(&self) {
+        let store: gtk::TreeStore = self.gtk_builder.get_object("rooms_tree_store")
+            .expect("Couldn't find rooms_tree_store in ui file.");
+        store.clear();
     }
 
     pub fn set_active_room(&mut self, room: String, name: String) {
         self.active_room = room;
 
-        self.set_loading(true);
+        self.room_panel(RoomPanel::Loading);
 
         let messages = self.gtk_builder
             .get_object::<gtk::ListBox>("message_list")
@@ -619,7 +639,7 @@ impl App {
                         theop.lock().unwrap().scroll_down();
                     }
 
-                    theop.lock().unwrap().set_loading(false);
+                    theop.lock().unwrap().room_panel(RoomPanel::Room);
                 },
                 Ok(BKResponse::RoomMessagesTo(msgs)) => {
                     for msg in msgs.iter().rev() {
@@ -680,6 +700,7 @@ impl App {
 
         self.connect_user_button();
         self.connect_login_button();
+        self.connect_guest_button();
 
         self.connect_room_treeview();
         self.connect_member_treeview();
@@ -759,6 +780,19 @@ impl App {
 
         let op = self.op.clone();
         login_btn.connect_clicked(move |_| op.lock().unwrap().login());
+    }
+
+    fn connect_guest_button(&self) {
+        let btn: gtk::Button = self.gtk_builder.get_object("guest_button")
+            .expect("Couldn't find guest_button in ui file.");
+
+        let op = self.op.clone();
+        let builder = self.gtk_builder.clone();
+        btn.connect_clicked(move |_| {
+            let server: gtk::Entry = builder.get_object("guest_server")
+                .expect("Can't find guest_server in ui file.");
+            op.lock().unwrap().connect_guest(server.get_text());
+        });
     }
 
     fn connect_room_treeview(&self) {

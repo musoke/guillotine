@@ -189,6 +189,9 @@ impl Backend {
                 let tk = String::from(r["access_token"].as_str().unwrap_or(""));
                 data.lock().unwrap().user_id = uid.clone();
                 data.lock().unwrap().access_token = tk.clone();
+                data.lock().unwrap().since = String::from("");
+                data.lock().unwrap().msgs_batch_end = String::from("");
+                data.lock().unwrap().msgs_batch_start = String::from("");
                 tx.send(BKResponse::Token(uid, tk)).unwrap();
             },
             |err| { tx.send(BKResponse::GuestLoginError(err)).unwrap() }
@@ -216,6 +219,9 @@ impl Backend {
 
                 data.lock().unwrap().user_id = uid.clone();
                 data.lock().unwrap().access_token = tk.clone();
+                data.lock().unwrap().since = String::from("");
+                data.lock().unwrap().msgs_batch_end = String::from("");
+                data.lock().unwrap().msgs_batch_start = String::from("");
                 tx.send(BKResponse::Token(uid, tk)).unwrap();
             },
             |err| { tx.send(BKResponse::LoginError(err)).unwrap() }
@@ -226,13 +232,14 @@ impl Backend {
 
     pub fn get_username(&self) -> Result<(), Error> {
         let baseu = self.get_base_url()?;
-        let id = self.data.lock().unwrap().user_id.clone() + "/";
+        let uid = self.data.lock().unwrap().user_id.clone();
+        let id = uid.clone() + "/";
         let url = baseu.join("/_matrix/client/r0/profile/")?.join(&id)?.join("displayname")?;
 
         let tx = self.tx.clone();
         get!(&url,
             |r: JsonValue| {
-                let name = String::from(r["displayname"].as_str().unwrap_or(""));
+                let name = String::from(r["displayname"].as_str().unwrap_or(&uid));
                 tx.send(BKResponse::Name(name)).unwrap();
             },
             |err| { tx.send(BKResponse::UserNameError(err)).unwrap() }

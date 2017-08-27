@@ -500,6 +500,20 @@
                     <property name="position">1</property>
                   </packing>
                 </child>
+                <child>
+                  <object class="GtkLabel">
+                    <property name="visible">True</property>
+                    <property name="can_focus">False</property>
+                    <property name="label" translatable="yes">No room selected
+Join a room to start to chat</property>
+                    <property name="justify">center</property>
+                  </object>
+                  <packing>
+                    <property name="name">noroom</property>
+                    <property name="title" translatable="yes">No room</property>
+                    <property name="position">2</property>
+                  </packing>
+                </child>
               </object>
               <packing>
                 <property name="expand">False</property>
@@ -645,6 +659,7 @@
         <child>
           <object class="GtkStack" id="user_menu_stack">
             <property name="can_focus">False</property>
+            <property name="vhomogeneous">False</property>
             <child>
               <object class="GtkBox">
                 <property name="name">5</property>
@@ -715,41 +730,144 @@
               </packing>
             </child>
             <child>
-              <object class="GtkGrid">
+              <object class="GtkBox">
                 <property name="visible">True</property>
                 <property name="can_focus">False</property>
+                <property name="margin_top">5</property>
+                <property name="margin_bottom">5</property>
+                <property name="orientation">vertical</property>
+                <property name="spacing">2</property>
                 <child>
-                  <placeholder/>
+                  <object class="GtkEntry" id="register_email_entry">
+                    <property name="visible">True</property>
+                    <property name="can_focus">True</property>
+                    <property name="secondary_icon_name">emblem-mail</property>
+                    <property name="placeholder_text" translatable="yes">Email (optional)</property>
+                    <property name="input_purpose">email</property>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">True</property>
+                    <property name="position">0</property>
+                  </packing>
                 </child>
                 <child>
-                  <placeholder/>
+                  <object class="GtkEntry" id="register_username_entry">
+                    <property name="visible">True</property>
+                    <property name="can_focus">True</property>
+                    <property name="secondary_icon_name">face-wink</property>
+                    <property name="placeholder_text" translatable="yes">Username</property>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">True</property>
+                    <property name="position">1</property>
+                  </packing>
                 </child>
                 <child>
-                  <placeholder/>
+                  <object class="GtkEntry" id="register_password_entry">
+                    <property name="visible">True</property>
+                    <property name="visibility">False</property>
+                    <property name="can_focus">True</property>
+                    <property name="secondary_icon_name">dialog-password</property>
+                    <property name="placeholder_text" translatable="yes">Password</property>
+                    <property name="input_purpose">password</property>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">True</property>
+                    <property name="position">2</property>
+                  </packing>
                 </child>
                 <child>
-                  <placeholder/>
+                  <object class="GtkEntry" id="register_password_confirm_entry">
+                    <property name="visible">True</property>
+                    <property name="visibility">False</property>
+                    <property name="can_focus">True</property>
+                    <property name="secondary_icon_name">dialog-password</property>
+                    <property name="placeholder_text" translatable="yes">Repeat the password</property>
+                    <property name="input_purpose">password</property>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">True</property>
+                    <property name="position">3</property>
+                  </packing>
                 </child>
                 <child>
-                  <placeholder/>
+                  <object class="GtkEntry" id="register_server">
+                    <property name="visible">True</property>
+                    <property name="can_focus">True</property>
+                    <property name="text" translatable="yes">https://matrix.org</property>
+                    <property name="secondary_icon_name">applications-internet</property>
+                    <property name="secondary_icon_tooltip_text" translatable="yes">server</property>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">True</property>
+                    <property name="position">4</property>
+                  </packing>
                 </child>
                 <child>
-                  <placeholder/>
-                </child>
-                <child>
-                  <placeholder/>
-                </child>
-                <child>
-                  <placeholder/>
-                </child>
-                <child>
-                  <placeholder/>
+                  <object class="GtkButton" id="register_button">
+                    <property name="label" translatable="yes">register</property>
+                    <property name="visible">True</property>
+                    <property name="can_focus">True</property>
+                    <property name="receives_default">True</property>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">True</property>
+                    <property name="position">5</property>
+                  </packing>
                 </child>
               </object>
               <packing>
                 <property name="name">register</property>
                 <property name="title" translatable="yes">Register</property>
                 <property name="position">1</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkBox">
+                <property name="visible">True</property>
+                <property name="can_focus">False</property>
+                <property name="margin_top">5</property>
+                <property name="margin_bottom">5</property>
+                <property name="orientation">vertical</property>
+                <property name="spacing">2</property>
+                <child>
+                  <object class="GtkEntry" id="guest_server">
+                    <property name="visible">True</property>
+                    <property name="can_focus">True</property>
+                    <property name="text" translatable="yes">https://matrix.org</property>
+                    <property name="secondary_icon_name">applications-internet</property>
+                    <property name="secondary_icon_tooltip_text" translatable="yes">server</property>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">True</property>
+                    <property name="position">0</property>
+                  </packing>
+                </child>
+                <child>
+                  <object class="GtkButton" id="guest_button">
+                    <property name="label" translatable="yes">Login as Guest</property>
+                    <property name="visible">True</property>
+                    <property name="can_focus">True</property>
+                    <property name="receives_default">True</property>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">True</property>
+                    <property name="position">1</property>
+                  </packing>
+                </child>
+              </object>
+              <packing>
+                <property name="name">guest</property>
+                <property name="title" translatable="yes">Guest</property>
+                <property name="position">2</property>
               </packing>
             </child>
           </object>
