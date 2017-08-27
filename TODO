@@ -3,8 +3,7 @@ Fixs:
     * Sort rooms by last message or fav?
 
 Functionality:
-    * Infinite scroll is done, but we need a button at the top, because the
-      event is send only if the scroll exists
+    * Register
     * Room search
     * Room creation
     * Leave room
@@ -12,7 +11,6 @@ Functionality:
     * Set room avatar
     * Change user display name
     * Change user avatar
-    * Register
     * Show media messages (images / videos)
     * Send media messages (images / videos)
     * Store last read message to show differently

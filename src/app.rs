@@ -44,6 +44,7 @@ struct AppOp {
     backend: Sender<backend::BKCommand>,
     active_room: String,
     members: HashMap<String, Member>,
+    load_more_btn: gtk::Button,
 }
 
 #[derive(Debug)]
@@ -269,8 +270,8 @@ impl AppOp {
         let messages = self.gtk_builder
             .get_object::<gtk::ListBox>("message_list")
             .expect("Can't find message_list in ui file.");
-        for ch in messages.get_children() {
-            messages.remove(&ch);
+        for ch in messages.get_children().iter().skip(1) {
+            messages.remove(ch);
         }
 
         self.members.clear();
@@ -490,7 +491,7 @@ impl AppOp {
 
             match msgpos {
                 MsgPos::Bottom => messages.add(&msg),
-                MsgPos::Top => messages.prepend(&msg),
+                MsgPos::Top => messages.insert(&msg, 1),
             };
 
         } else {
@@ -536,7 +537,12 @@ impl AppOp {
 
     pub fn load_more_messages(&self) {
         let room = self.active_room.clone();
+        self.load_more_btn.set_label("loading...");
         self.backend.send(BKCommand::GetRoomMessagesTo(room)).unwrap();
+    }
+
+    pub fn load_more_normal(&self) {
+        self.load_more_btn.set_label("load more messages");
     }
 }
 
@@ -569,6 +575,7 @@ impl App {
         let op = Arc::new(Mutex::new(
             AppOp{
                 gtk_builder: gtk_builder.clone(),
+                load_more_btn: gtk::Button::new_with_label("Load more messages"),
                 backend: apptx,
                 active_room: String::from(""),
                 members: HashMap::new(),
@@ -604,16 +611,21 @@ impl App {
                     theop.lock().unwrap().set_room_avatar(avatar);
                 },
                 Ok(BKResponse::RoomMessages(msgs)) => {
-                    for msg in msgs {
-                        theop.lock().unwrap().add_room_message(&msg, MsgPos::Bottom);
+                    for msg in msgs.iter() {
+                        theop.lock().unwrap().add_room_message(msg, MsgPos::Bottom);
                     }
-                    theop.lock().unwrap().scroll_down();
+
+                    if !msgs.is_empty() {
+                        theop.lock().unwrap().scroll_down();
+                    }
+
                     theop.lock().unwrap().set_loading(false);
                 },
                 Ok(BKResponse::RoomMessagesTo(msgs)) => {
                     for msg in msgs.iter().rev() {
                         theop.lock().unwrap().add_room_message(msg, MsgPos::Top);
                     }
+                    theop.lock().unwrap().load_more_normal();
                 },
                 Ok(BKResponse::RoomMembers(members)) => {
                     let mut ms = members;
@@ -664,6 +676,8 @@ impl App {
             window.set_application(app);
         });
 
+        self.create_load_more_btn();
+
         self.connect_user_button();
         self.connect_login_button();
 
@@ -673,6 +687,21 @@ impl App {
         self.connect_msg_scroll();
 
         self.connect_send();
+    }
+
+    fn create_load_more_btn(&self) {
+        let messages = self.gtk_builder
+            .get_object::<gtk::ListBox>("message_list")
+            .expect("Can't find message_list in ui file.");
+
+        let btn = self.op.lock().unwrap().load_more_btn.clone();
+        btn.show();
+        messages.add(&btn);
+
+        let op = self.op.clone();
+        btn.connect_clicked(move |_| {
+            op.lock().unwrap().load_more_messages();
+        });
     }
 
     fn connect_msg_scroll(&self) {
