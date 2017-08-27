@@ -14,6 +14,7 @@ use self::serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use self::url::Url;
 use std::io::Read;
+use std::path::Path;
 
 use std::fs::File;
 use std::io::prelude::*;
@@ -213,6 +214,12 @@ pub fn dw_media(base: &Url, url: &str, thumb: bool, dest: Option<&str>, w: i32, 
         None => String::from(xdg_dirs.place_cache_file(&media)?.to_str().ok_or(Error::BackendError)?),
         Some(d) => String::from(d) + &media
     };
+
+    let pathname = fname.clone();
+    let p = Path::new(&pathname);
+    if p.is_file() {
+        return Ok(fname);
+    }
 
     let mut file = File::create(&fname)?;
     let buffer = get_media(url.as_str())?;
