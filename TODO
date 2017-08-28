@@ -4,13 +4,14 @@ Fixs:
 
 Functionality:
     * Register
-    * Room join
-    * Room creation
     * Leave room
+    * load more messages if all are join/leafe
+    * Room creation
     * Set topic
     * Set room avatar
     * Change user display name
     * Change user avatar
+    * show join/leave events?
     * Show media messages (images / videos)
     * Send media messages (images / videos)
     * Store last read message to show differently

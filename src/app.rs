@@ -298,7 +298,7 @@ impl AppOp {
         self.backend.send(BKCommand::Sync).unwrap();
     }
 
-    pub fn set_rooms(&mut self, rooms: HashMap<String, String>) {
+    pub fn set_rooms(&mut self, rooms: HashMap<String, String>, def: Option<(String, String)>) {
         let store: gtk::TreeStore = self.gtk_builder.get_object("rooms_tree_store")
             .expect("Couldn't find rooms_tree_store in ui file.");
 
@@ -309,7 +309,7 @@ impl AppOp {
 
         array.sort_by(|x, y| x.0.to_lowercase().cmp(&y.0.to_lowercase()));
 
-        let mut default: Option<(String, String)> = None;
+        let mut default: Option<(String, String)> = def;
 
         for v in array {
             if default.is_none() {
@@ -326,6 +326,17 @@ impl AppOp {
         } else {
             self.room_panel(RoomPanel::NoRoom);
         }
+    }
+
+    pub fn reload_rooms(&self) {
+        self.gtk_builder
+            .get_object::<gtk::Stack>("main_content_stack")
+            .expect("Can't find main_content_stack in ui file.")
+            .set_visible_child_name("Chat");
+
+        self.clear_room_list();
+        self.room_panel(RoomPanel::Loading);
+        self.backend.send(BKCommand::SyncForced).unwrap();
     }
 
     pub fn clear_room_list(&self) {
@@ -614,8 +625,8 @@ impl App {
                     println!("SYNC");
                     theop.lock().unwrap().sync();
                 },
-                Ok(BKResponse::Rooms(rooms)) => {
-                    theop.lock().unwrap().set_rooms(rooms);
+                Ok(BKResponse::Rooms(rooms, default)) => {
+                    theop.lock().unwrap().set_rooms(rooms, default);
                 },
                 Ok(BKResponse::RoomDetail(key, value)) => {
                     theop.lock().unwrap().set_room_detail(key, value);
@@ -656,6 +667,9 @@ impl App {
                     for room in rooms {
                         theop.lock().unwrap().set_directory_room(room);
                     }
+                },
+                Ok(BKResponse::JoinRoom) => {
+                    theop.lock().unwrap().reload_rooms();
                 },
                 // errors
                 Ok(err) => {

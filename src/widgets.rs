@@ -194,7 +194,6 @@ impl<'a> RoomBox<'a> {
 
     pub fn widget(&self) -> gtk::Box {
         let r = self.room;
-        let op = self.op;
 
         let h = gtk::Box::new(gtk::Orientation::Vertical, 0);
         let w = gtk::Box::new(gtk::Orientation::Horizontal, 5);
@@ -209,7 +208,7 @@ impl<'a> RoomBox<'a> {
         let id = r.id.clone();
         let name = mname.clone();
         let (tx, rx): (Sender<String>, Receiver<String>) = channel();
-        op.backend.send(BKCommand::GetThumbAsync(r.avatar.clone(), tx)).unwrap();
+        self.op.backend.send(BKCommand::GetThumbAsync(r.avatar.clone(), tx)).unwrap();
         gtk::timeout_add(50, move || {
             match rx.try_recv() {
                 Err(_) => gtk::Continue(true),
@@ -249,11 +248,17 @@ impl<'a> RoomBox<'a> {
         idw.set_halign(gtk::Align::Start);
         idw.set_alignment(0 as f32, 0 as f32);
 
-        //TODO add join button
+        let joinbtn = gtk::Button::new_with_label("Join");
+        let rid = r.id.clone();
+        let backend = self.op.backend.clone();
+        joinbtn.connect_clicked(move |_| {
+            backend.send(BKCommand::JoinRoom(rid.clone())).unwrap();
+        });
 
         b.add(&msg);
         b.add(&topic);
         b.add(&idw);
+        b.pack_start(&joinbtn, false, false, 0);
         w.pack_start(&b, true, true, 0);
 
         let members = gtk::Label::new(&format!("{}", r.members)[..]);

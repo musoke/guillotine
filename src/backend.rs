@@ -35,6 +35,7 @@ pub struct BackendData {
     msgs_batch_start: String,
     msgs_batch_end: String,
     rooms_since: String,
+    join_to_room: String,
 }
 
 pub struct Backend {
@@ -50,6 +51,7 @@ pub enum BKCommand {
     GetUsername,
     GetAvatar,
     Sync,
+    SyncForced,
     GetRoomMessages(String),
     GetRoomMessagesTo(String),
     GetAvatarAsync(String, Sender<String>),
@@ -59,6 +61,7 @@ pub enum BKCommand {
     ShutDown,
     DirectoryProtocols,
     DirectorySearch(String, String, bool),
+    JoinRoom(String),
 }
 
 #[derive(Debug)]
@@ -67,7 +70,7 @@ pub enum BKResponse {
     Name(String),
     Avatar(String),
     Sync,
-    Rooms(HashMap<String, String>),
+    Rooms(HashMap<String, String>, Option<(String, String)>),
     RoomDetail(String, String),
     RoomAvatar(String),
     RoomMessages(Vec<Message>),
@@ -76,6 +79,7 @@ pub enum BKResponse {
     SendMsg,
     DirectoryProtocols(Vec<Protocol>),
     DirectorySearch(Vec<Room>),
+    JoinRoom,
 
     //errors
     UserNameError(Error),
@@ -91,6 +95,7 @@ pub enum BKResponse {
     SetRoomError(Error),
     CommandError(Error),
     DirectoryError(Error),
+    JoinRoomError(Error),
 }
 
 
@@ -105,6 +110,7 @@ impl Backend {
                     msgs_batch_start: String::from(""),
                     msgs_batch_end: String::from(""),
                     rooms_since: String::from(""),
+                    join_to_room: String::from(""),
         };
         Backend { tx: tx, data: Arc::new(Mutex::new(data)) }
     }
@@ -134,6 +140,11 @@ impl Backend {
                 bkerror!(r, tx, BKResponse::AvatarError);
             },
             Ok(BKCommand::Sync) => {
+                let r = self.sync();
+                bkerror!(r, tx, BKResponse::SyncError);
+            },
+            Ok(BKCommand::SyncForced) => {
+                self.data.lock().unwrap().since = String::from("");
                 let r = self.sync();
                 bkerror!(r, tx, BKResponse::SyncError);
             },
@@ -178,6 +189,10 @@ impl Backend {
 
                 let r = self.room_search(q, tp, more);
                 bkerror!(r, tx, BKResponse::DirectoryError);
+            },
+            Ok(BKCommand::JoinRoom(roomid)) => {
+                let r = self.join_room(roomid);
+                bkerror!(r, tx, BKResponse::JoinRoomError);
             },
             Ok(BKCommand::ShutDown) => {
                 return false;
@@ -374,7 +389,17 @@ impl Backend {
                 let next_batch = String::from(r["next_batch"].as_str().unwrap_or(""));
                 if since.is_empty() {
                     let rooms = get_rooms_from_json(r, &userid).unwrap();
-                    tx.send(BKResponse::Rooms(rooms)).unwrap();
+
+                    let mut def: Option<(String, String)> = None;
+                    let jtr = data.lock().unwrap().join_to_room.clone();
+                    if !jtr.is_empty() {
+                        if let Some(name) = rooms.iter().find(|x| *(x.0) == jtr) {
+                            def = Some((name.1.clone(), name.0.clone()));
+                        }
+                    }
+
+                    tx.send(BKResponse::Rooms(rooms, def)).unwrap();
+
                 } else {
                     match get_rooms_timeline_from_json(&baseu, r) {
                         Ok(msgs) => tx.send(BKResponse::RoomMessages(msgs)).unwrap(),
@@ -601,7 +626,7 @@ impl Backend {
 
         let tx = self.tx.clone();
         let s = self.data.lock().unwrap().server_url.clone();
-        query!("get", &url,
+        get!(&url,
             move |r: JsonValue| {
                 let mut protocols: Vec<Protocol> = vec![];
 
@@ -656,7 +681,7 @@ impl Backend {
 
         let tx = self.tx.clone();
         let data = self.data.clone();
-        query!("post", &url, &attrs,
+        post!(&url, &attrs,
             move |r: JsonValue| {
                 data.lock().unwrap().rooms_since = String::from(r["next_batch"].as_str().unwrap_or(""));
 
@@ -679,6 +704,25 @@ impl Backend {
                 tx.send(BKResponse::DirectorySearch(rooms)).unwrap();
             },
             |err| { tx.send(BKResponse::DirectoryError(err)).unwrap(); }
+        );
+
+        Ok(())
+    }
+
+    pub fn join_room(&self, roomid: String) -> Result<(), Error> {
+        let baseu = self.get_base_url()?;
+        let tk = self.data.lock().unwrap().access_token.clone();
+        let mut url = baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid.clone() + "/join"))?;
+        url = url.join(&format!("?access_token={}", tk))?;
+
+        let tx = self.tx.clone();
+        let data = self.data.clone();
+        post!(&url,
+            move |_: JsonValue| {
+                data.lock().unwrap().join_to_room = roomid.clone();
+                tx.send(BKResponse::JoinRoom).unwrap();
+            },
+            |err| { tx.send(BKResponse::JoinRoomError(err)).unwrap(); }
         );
 
         Ok(())
