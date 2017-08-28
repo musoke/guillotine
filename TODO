@@ -4,7 +4,7 @@ Fixs:
 
 Functionality:
     * Register
-    * Room search (Altmost done, we need to show it correctly and infinite scroll)
+    * Room join
     * Room creation
     * Leave room
     * Set topic
