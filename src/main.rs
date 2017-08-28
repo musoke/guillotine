@@ -2,6 +2,7 @@
 extern crate serde_json;
 #[macro_use]
 mod util;
+mod widgets;
 mod error;
 mod types;
 mod backend;
