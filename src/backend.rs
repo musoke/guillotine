@@ -22,6 +22,8 @@ use error::Error;
 
 use types::Message;
 use types::Member;
+use types::Protocol;
+use types::Room;
 
 
 pub struct BackendData {
@@ -53,6 +55,8 @@ pub enum BKCommand {
     SendMsg(String, String),
     SetRoom(String),
     ShutDown,
+    DirectoryProtocols,
+    DirectorySearch(String, String),
 }
 
 #[derive(Debug)]
@@ -68,6 +72,8 @@ pub enum BKResponse {
     RoomMessagesTo(Vec<Message>),
     RoomMembers(Vec<Member>),
     SendMsg,
+    DirectoryProtocols(Vec<Protocol>),
+    DirectorySearch(Vec<Room>),
 
     //errors
     UserNameError(Error),
@@ -82,6 +88,7 @@ pub enum BKResponse {
     SendMsgError(Error),
     SetRoomError(Error),
     CommandError(Error),
+    DirectoryError(Error),
 }
 
 
@@ -146,6 +153,24 @@ impl Backend {
             Ok(BKCommand::SetRoom(room)) => {
                 let r = self.set_room(room);
                 bkerror!(r, tx, BKResponse::SetRoomError);
+            },
+            Ok(BKCommand::DirectoryProtocols) => {
+                let r = self.protocols();
+                bkerror!(r, tx, BKResponse::DirectoryError);
+            },
+            Ok(BKCommand::DirectorySearch(dq, dtp)) => {
+                let q = match dq {
+                    ref a if a.is_empty() => None,
+                    b => Some(b),
+                };
+
+                let tp = match dtp {
+                    ref a if a.is_empty() => None,
+                    b => Some(b),
+                };
+
+                let r = self.room_search(q, tp);
+                bkerror!(r, tx, BKResponse::DirectoryError);
             },
             Ok(BKCommand::ShutDown) => {
                 return false;
@@ -542,6 +567,94 @@ impl Backend {
                 tx.send(BKResponse::SendMsg).unwrap();
             },
             |err| { tx.send(BKResponse::SendMsgError(err)).unwrap(); }
+        );
+
+        Ok(())
+    }
+
+    pub fn protocols(&self) -> Result<(), Error> {
+        let baseu = self.get_base_url()?;
+        let tk = self.data.lock().unwrap().access_token.clone();
+        let mut url = baseu.join("/_matrix/client/unstable/thirdparty/protocols")?;
+        let params = format!("?access_token={}", tk);
+        url = url.join(&params)?;
+
+        let tx = self.tx.clone();
+        let s = self.data.lock().unwrap().server_url.clone();
+        query!("get", &url,
+            move |r: JsonValue| {
+                let mut protocols: Vec<Protocol> = vec![];
+
+                protocols.push(Protocol {
+                    id: String::from(""),
+                    desc: String::from(s.split('/').last().unwrap_or("")),
+                });
+
+                let prs = r.as_object().unwrap();
+                for k in prs.keys() {
+                    let ins = prs[k]["instances"].as_array().unwrap();
+                    for i in ins {
+                        let p = Protocol{
+                            id: String::from(i["instance_id"].as_str().unwrap()),
+                            desc: String::from(i["desc"].as_str().unwrap()),
+                        };
+                        protocols.push(p);
+                    }
+                }
+
+                tx.send(BKResponse::DirectoryProtocols(protocols)).unwrap();
+            },
+            |err| { tx.send(BKResponse::DirectoryError(err)).unwrap(); }
+        );
+
+        Ok(())
+    }
+
+    pub fn room_search(&self, query: Option<String>, third_party: Option<String>) -> Result<(), Error> {
+        let baseu = self.get_base_url()?;
+        let tk = self.data.lock().unwrap().access_token.clone();
+        let mut url = baseu.join("/_matrix/client/r0/publicRooms")?;
+        let params = format!("?access_token={}", tk);
+        url = url.join(&params)?;
+
+        let mut attrs = json!({"limit": 20});
+
+        if let Some(q) = query {
+            attrs["filter"] = json!({
+                "generic_search_term": q
+            });
+        }
+
+        if let Some(tp) = third_party {
+            attrs["third_party_instance_id"] = json!(tp);
+        }
+
+        let tx = self.tx.clone();
+        // TODO: paginate this
+        query!("post", &url, &attrs,
+            move |r: JsonValue| {
+                //data.lock().unwrap().rooms_next_batch = String::from(r["next_batch"].as_str().unwrap_or(""));
+
+                let mut rooms: Vec<Room> = vec![];
+                for room in r["chunk"].as_array().unwrap() {
+                    let alias = String::from(room["aliases"][0].as_str().unwrap_or(""));
+                    let r = Room {
+                        alias: alias,
+                        id: String::from(room["room_id"].as_str().unwrap_or("")),
+                        avatar: String::from(room["avatar_url"].as_str().unwrap_or("")),
+                        name: String::from(room["name"].as_str().unwrap_or("")),
+                        topic: String::from(room["topic"].as_str().unwrap_or("")),
+                        members: room["num_joined_members"].as_i64().unwrap_or(0) as i32,
+                        world_readable: room["world_readable"].as_bool().unwrap_or(false),
+                        guest_can_join: room["guest_can_join"].as_bool().unwrap_or(false),
+                    };
+                    println!("room: {:#?}", room);
+                    rooms.push(r);
+                }
+
+                tx.send(BKResponse::DirectorySearch(rooms)).unwrap();
+            },
+            |err| { tx.send(BKResponse::DirectoryError(err)).unwrap(); }
         );
 
         Ok(())

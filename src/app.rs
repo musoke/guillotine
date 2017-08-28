@@ -25,6 +25,8 @@ use backend;
 
 use types::Member;
 use types::Message;
+use types::Protocol;
+use types::Room;
 
 
 #[derive(Debug)]
@@ -615,6 +617,84 @@ impl AppOp {
     pub fn load_more_normal(&self) {
         self.load_more_btn.set_label("load more messages");
     }
+
+    pub fn init_protocols(&self) {
+        self.backend.send(BKCommand::DirectoryProtocols).unwrap();
+    }
+
+    pub fn set_protocols(&self, protocols: Vec<Protocol>) {
+        let combo = self.gtk_builder
+            .get_object::<gtk::ListStore>("protocol_model")
+            .expect("Can't find protocol_model in ui file.");
+        combo.clear();
+
+        for p in protocols {
+            combo.insert_with_values(None,
+                &[0, 1],
+                &[&p.desc, &p.id]);
+        }
+
+        self.gtk_builder
+            .get_object::<gtk::ComboBox>("directory_combo")
+            .expect("Can't find directory_combo in ui file.")
+            .set_active(0);
+    }
+
+    pub fn search_rooms(&self) {
+        let combo_store = self.gtk_builder
+            .get_object::<gtk::ListStore>("protocol_model")
+            .expect("Can't find protocol_model in ui file.");
+        let combo = self.gtk_builder
+            .get_object::<gtk::ComboBox>("directory_combo")
+            .expect("Can't find directory_combo in ui file.");
+
+        let active = combo.get_active();
+        let protocol: String = match combo_store.iter_nth_child(None, active) {
+            Some(it) => {
+                let v = combo_store.get_value(&it, 1);
+                v.get().unwrap()
+            },
+            None => String::from(""),
+        };
+
+        let q = self.gtk_builder
+            .get_object::<gtk::Entry>("directory_search_entry")
+            .expect("Can't find directory_search_entry in ui file.");
+
+        self.backend.send(BKCommand::DirectorySearch(q.get_text().unwrap(), protocol)).unwrap();
+    }
+
+    pub fn build_widget_for_room(&self, r: &Room) -> gtk::Box {
+        let w = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+
+        // TODO: create a real widget, with join button, avatar, and all room info
+        let msg = gtk::Label::new(&r.name[..]);
+        if r.name.is_empty() {
+            msg.set_label(&r.alias[..]);
+        }
+        msg.set_line_wrap(true);
+        msg.set_justify(gtk::Justification::Left);
+        msg.set_halign(gtk::Align::Start);
+        msg.set_alignment(0 as f32, 0 as f32);
+
+        w.add(&msg);
+        w.show_all();
+        w
+    }
+
+    pub fn set_directory_rooms(&self, rooms: Vec<Room>) {
+        let directory = self.gtk_builder
+            .get_object::<gtk::ListBox>("directory_room_list")
+            .expect("Can't find directory_room_list in ui file.");
+        for ch in directory.get_children() {
+            directory.remove(&ch);
+        }
+
+        for r in rooms {
+            let room_widget = self.build_widget_for_room(&r);
+            directory.add(&room_widget);
+        }
+    }
 }
 
 /// State for the main thread.
@@ -661,6 +741,8 @@ impl App {
                     theop.lock().unwrap().set_username(&uid);
                     theop.lock().unwrap().get_username();
                     theop.lock().unwrap().sync();
+
+                    theop.lock().unwrap().init_protocols();
                 },
                 Ok(BKResponse::Name(username)) => {
                     theop.lock().unwrap().set_username(&username);
@@ -707,6 +789,12 @@ impl App {
                     theop.lock().unwrap().get_room_messages();
                 },
                 Ok(BKResponse::SendMsg) => { },
+                Ok(BKResponse::DirectoryProtocols(protocols)) => {
+                    theop.lock().unwrap().set_protocols(protocols);
+                },
+                Ok(BKResponse::DirectorySearch(rooms)) => {
+                    theop.lock().unwrap().set_directory_rooms(rooms);
+                },
                 // errors
                 Ok(err) => {
                     println!("Query error: {:?}", err);
@@ -724,6 +812,7 @@ impl App {
         };
 
         app.connect_gtk();
+
         app
     }
 
@@ -760,6 +849,19 @@ impl App {
         self.connect_msg_scroll();
 
         self.connect_send();
+
+        self.connect_directory();
+    }
+
+    fn connect_directory(&self) {
+        let btn = self.gtk_builder
+            .get_object::<gtk::Button>("directory_search_button")
+            .expect("Can't find directory_search_button in ui file.");
+
+        let op = self.op.clone();
+        btn.connect_clicked(move |_| {
+            op.lock().unwrap().search_rooms();
+        });
     }
 
     fn create_load_more_btn(&self) {

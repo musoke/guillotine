@@ -28,3 +28,21 @@ impl Member {
         }
     }
 }
+
+#[derive(Debug)]
+pub struct Protocol {
+    pub id: String,
+    pub desc: String,
+}
+
+#[derive(Debug)]
+pub struct Room {
+    pub id: String,
+    pub avatar: String,
+    pub name: String,
+    pub guest_can_join: bool,
+    pub topic: String,
+    pub members: i32,
+    pub world_readable: bool,
+    pub alias: String,
+}
