@@ -34,6 +34,7 @@ pub struct BackendData {
     msgid: i32,
     msgs_batch_start: String,
     msgs_batch_end: String,
+    rooms_since: String,
 }
 
 pub struct Backend {
@@ -52,11 +53,12 @@ pub enum BKCommand {
     GetRoomMessages(String),
     GetRoomMessagesTo(String),
     GetAvatarAsync(String, Sender<String>),
+    GetThumbAsync(String, Sender<String>),
     SendMsg(String, String),
     SetRoom(String),
     ShutDown,
     DirectoryProtocols,
-    DirectorySearch(String, String),
+    DirectorySearch(String, String, bool),
 }
 
 #[derive(Debug)]
@@ -102,6 +104,7 @@ impl Backend {
                     msgid: 1,
                     msgs_batch_start: String::from(""),
                     msgs_batch_end: String::from(""),
+                    rooms_since: String::from(""),
         };
         Backend { tx: tx, data: Arc::new(Mutex::new(data)) }
     }
@@ -146,6 +149,10 @@ impl Backend {
                 let r = self.get_avatar_async(&sender, ctx);
                 bkerror!(r, tx, BKResponse::CommandError);
             },
+            Ok(BKCommand::GetThumbAsync(media, ctx)) => {
+                let r = self.get_thumb_async(media, ctx);
+                bkerror!(r, tx, BKResponse::CommandError);
+            },
             Ok(BKCommand::SendMsg(room, msg)) => {
                 let r = self.send_msg(room, msg);
                 bkerror!(r, tx, BKResponse::SendMsgError);
@@ -158,7 +165,7 @@ impl Backend {
                 let r = self.protocols();
                 bkerror!(r, tx, BKResponse::DirectoryError);
             },
-            Ok(BKCommand::DirectorySearch(dq, dtp)) => {
+            Ok(BKCommand::DirectorySearch(dq, dtp, more)) => {
                 let q = match dq {
                     ref a if a.is_empty() => None,
                     b => Some(b),
@@ -169,7 +176,7 @@ impl Backend {
                     b => Some(b),
                 };
 
-                let r = self.room_search(q, tp);
+                let r = self.room_search(q, tp, more);
                 bkerror!(r, tx, BKResponse::DirectoryError);
             },
             Ok(BKCommand::ShutDown) => {
@@ -540,6 +547,19 @@ impl Backend {
         Ok(())
     }
 
+    pub fn get_thumb_async(&self, media: String, tx: Sender<String>) -> Result<(), Error> {
+        let baseu = self.get_base_url()?;
+
+        thread::spawn(move || {
+            match thumb!(&baseu, &media) {
+                Ok(fname) => { tx.send(fname).unwrap(); },
+                Err(_) => { tx.send(String::from("")).unwrap(); }
+            };
+        });
+
+        Ok(())
+    }
+
     pub fn send_msg(&self, roomid: String, msg: String) -> Result<(), Error> {
         let baseu = self.get_base_url()?;
         let tk = self.data.lock().unwrap().access_token.clone();
@@ -610,7 +630,7 @@ impl Backend {
         Ok(())
     }
 
-    pub fn room_search(&self, query: Option<String>, third_party: Option<String>) -> Result<(), Error> {
+    pub fn room_search(&self, query: Option<String>, third_party: Option<String>, more: bool) -> Result<(), Error> {
         let baseu = self.get_base_url()?;
         let tk = self.data.lock().unwrap().access_token.clone();
         let mut url = baseu.join("/_matrix/client/r0/publicRooms")?;
@@ -629,15 +649,20 @@ impl Backend {
             attrs["third_party_instance_id"] = json!(tp);
         }
 
+        if more {
+            let since = self.data.lock().unwrap().rooms_since.clone();
+            attrs["since"] = json!(since);
+        }
+
         let tx = self.tx.clone();
-        // TODO: paginate this
+        let data = self.data.clone();
         query!("post", &url, &attrs,
             move |r: JsonValue| {
-                //data.lock().unwrap().rooms_next_batch = String::from(r["next_batch"].as_str().unwrap_or(""));
+                data.lock().unwrap().rooms_since = String::from(r["next_batch"].as_str().unwrap_or(""));
 
                 let mut rooms: Vec<Room> = vec![];
                 for room in r["chunk"].as_array().unwrap() {
-                    let alias = String::from(room["aliases"][0].as_str().unwrap_or(""));
+                    let alias = String::from(room["canonical_alias"].as_str().unwrap_or(""));
                     let r = Room {
                         alias: alias,
                         id: String::from(room["room_id"].as_str().unwrap_or("")),
@@ -648,7 +673,6 @@ impl Backend {
                         world_readable: room["world_readable"].as_bool().unwrap_or(false),
                         guest_can_join: room["guest_can_join"].as_bool().unwrap_or(false),
                     };
-                    println!("room: {:#?}", room);
                     rooms.push(r);
                 }
 

@@ -28,6 +28,8 @@ use types::Message;
 use types::Protocol;
 use types::Room;
 
+use util;
+
 
 #[derive(Debug)]
 pub enum Error {
@@ -640,7 +642,7 @@ impl AppOp {
             .set_active(0);
     }
 
-    pub fn search_rooms(&self) {
+    pub fn search_rooms(&self, more: bool) {
         let combo_store = self.gtk_builder
             .get_object::<gtk::ListStore>("protocol_model")
             .expect("Can't find protocol_model in ui file.");
@@ -661,39 +663,111 @@ impl AppOp {
             .get_object::<gtk::Entry>("directory_search_entry")
             .expect("Can't find directory_search_entry in ui file.");
 
-        self.backend.send(BKCommand::DirectorySearch(q.get_text().unwrap(), protocol)).unwrap();
+        let btn = self.gtk_builder
+            .get_object::<gtk::Button>("directory_search_button")
+            .expect("Can't find directory_search_button in ui file.");
+        btn.set_label("Searching...");
+        btn.set_sensitive(false);
+
+        if !more {
+            let directory = self.gtk_builder
+                .get_object::<gtk::ListBox>("directory_room_list")
+                .expect("Can't find directory_room_list in ui file.");
+            for ch in directory.get_children() {
+                directory.remove(&ch);
+            }
+        }
+
+        self.backend.send(BKCommand::DirectorySearch(q.get_text().unwrap(), protocol, more)).unwrap();
     }
 
     pub fn build_widget_for_room(&self, r: &Room) -> gtk::Box {
-        let w = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        let h = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let w = gtk::Box::new(gtk::Orientation::Horizontal, 5);
 
-        // TODO: create a real widget, with join button, avatar, and all room info
-        let msg = gtk::Label::new(&r.name[..]);
-        if r.name.is_empty() {
-            msg.set_label(&r.alias[..]);
-        }
+        let mname = match r.name {
+            ref n if n.is_empty() => r.alias.clone(),
+            ref n => n.clone(),
+        };
+
+        let avatar = gtk::Image::new_from_icon_name("image-missing", 5);
+        let a = avatar.clone();
+        let id = r.id.clone();
+        let name = mname.clone();
+        let (tx, rx): (Sender<String>, Receiver<String>) = channel();
+        self.backend.send(BKCommand::GetThumbAsync(r.avatar.clone(), tx)).unwrap();
+        gtk::timeout_add(50, move || {
+            match rx.try_recv() {
+                Err(_) => gtk::Continue(true),
+                Ok(fname) => {
+                    let mut f = fname.clone();
+                    if f.is_empty() {
+                        f = util::draw_identicon(&id, name.clone()).unwrap();
+                    }
+                    if let Ok(pixbuf) = Pixbuf::new_from_file_at_scale(&f, 32, 32, false) {
+                        a.set_from_pixbuf(&pixbuf);
+                    }
+                    gtk::Continue(false)
+                }
+            }
+        });
+        w.pack_start(&avatar, false, false, 0);
+
+        let b = gtk::Box::new(gtk::Orientation::Vertical, 0);
+
+        let msg = gtk::Label::new("");
         msg.set_line_wrap(true);
+        msg.set_markup(&format!("<b>{}</b>", mname));
         msg.set_justify(gtk::Justification::Left);
         msg.set_halign(gtk::Align::Start);
         msg.set_alignment(0 as f32, 0 as f32);
 
-        w.add(&msg);
-        w.show_all();
-        w
+        let topic = gtk::Label::new("");
+        topic.set_line_wrap(true);
+        topic.set_markup(&util::markup(&r.topic));
+        topic.set_justify(gtk::Justification::Left);
+        topic.set_halign(gtk::Align::Start);
+        topic.set_alignment(0 as f32, 0 as f32);
+
+        let idw = gtk::Label::new("");
+        idw.set_markup(&format!("<span alpha=\"60%\">{}</span>", r.alias));
+        idw.set_justify(gtk::Justification::Left);
+        idw.set_halign(gtk::Align::Start);
+        idw.set_alignment(0 as f32, 0 as f32);
+
+        //TODO add join button
+
+        b.add(&msg);
+        b.add(&topic);
+        b.add(&idw);
+        w.pack_start(&b, true, true, 0);
+
+        let members = gtk::Label::new(&format!("{}", r.members)[..]);
+        w.pack_start(&members, false, false, 5);
+
+        h.add(&w);
+        h.add(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        h.show_all();
+        h
     }
 
-    pub fn set_directory_rooms(&self, rooms: Vec<Room>) {
+    pub fn load_more_rooms(&self) {
+        self.search_rooms(true);
+    }
+
+    pub fn set_directory_room(&self, room: Room) {
         let directory = self.gtk_builder
             .get_object::<gtk::ListBox>("directory_room_list")
             .expect("Can't find directory_room_list in ui file.");
-        for ch in directory.get_children() {
-            directory.remove(&ch);
-        }
 
-        for r in rooms {
-            let room_widget = self.build_widget_for_room(&r);
-            directory.add(&room_widget);
-        }
+        let room_widget = self.build_widget_for_room(&room);
+        directory.add(&room_widget);
+
+        let btn = self.gtk_builder
+            .get_object::<gtk::Button>("directory_search_button")
+            .expect("Can't find directory_search_button in ui file.");
+        btn.set_label("Search");
+        btn.set_sensitive(true);
     }
 }
 
@@ -793,7 +867,9 @@ impl App {
                     theop.lock().unwrap().set_protocols(protocols);
                 },
                 Ok(BKResponse::DirectorySearch(rooms)) => {
-                    theop.lock().unwrap().set_directory_rooms(rooms);
+                    for room in rooms {
+                        theop.lock().unwrap().set_directory_room(room);
+                    }
                 },
                 // errors
                 Ok(err) => {
@@ -857,10 +933,29 @@ impl App {
         let btn = self.gtk_builder
             .get_object::<gtk::Button>("directory_search_button")
             .expect("Can't find directory_search_button in ui file.");
+        let q = self.gtk_builder
+            .get_object::<gtk::Entry>("directory_search_entry")
+            .expect("Can't find directory_search_entry in ui file.");
 
-        let op = self.op.clone();
+        let scroll = self.gtk_builder
+            .get_object::<gtk::ScrolledWindow>("directory_scroll")
+            .expect("Can't find directory_scroll in ui file.");
+
+        let mut op = self.op.clone();
         btn.connect_clicked(move |_| {
-            op.lock().unwrap().search_rooms();
+            op.lock().unwrap().search_rooms(false);
+        });
+
+        op = self.op.clone();
+        scroll.connect_edge_reached(move |_, dir| {
+            if dir == gtk::PositionType::Bottom {
+                op.lock().unwrap().load_more_rooms();
+            }
+        });
+
+        op = self.op.clone();
+        q.connect_activate(move |_| {
+            op.lock().unwrap().search_rooms(false);
         });
     }
 

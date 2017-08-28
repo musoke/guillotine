@@ -444,3 +444,17 @@ pub fn parse_room_message(baseu: &Url, roomid: String, msg: &JsonValue) -> Messa
         thumb: thumb,
     }
 }
+
+pub fn markup(s: &str) -> String {
+    let mut out = String::from(s);
+
+    out = String::from(out.trim());
+    out = out.replace('&', "&amp;");
+    out = out.replace('<', "&lt;");
+    out = out.replace('>', "&gt;");
+
+    let re = Regex::new(r"(?P<url>https?://[^\s]+[-A-Za-z0-9+&@#/%=~_|])").unwrap();
+    out = String::from(re.replace_all(&out, "<a href=\"$url\">$url</a>"));
+
+    out
+}
