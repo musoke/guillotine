@@ -417,14 +417,17 @@ impl AppOp {
     }
 
     pub fn scroll_down(&self) {
-        let s = self.gtk_builder
+        let scroll = self.gtk_builder
             .get_object::<gtk::ScrolledWindow>("messages_scroll")
             .expect("Can't find message_scroll in ui file.");
 
-        if let Some(adj) = s.get_vadjustment() {
-            println!("adj: {:?}", adj);
-            adj.set_value(adj.get_upper());
-        }
+        let s = scroll.clone();
+        gtk::timeout_add(500, move || {
+            if let Some(adj) = s.get_vadjustment() {
+                    adj.set_value(adj.get_upper() - adj.get_page_size());
+            }
+            gtk::Continue(false)
+        });
     }
 
     pub fn add_room_message(&self, msg: &Message, msgpos: MsgPos) {
