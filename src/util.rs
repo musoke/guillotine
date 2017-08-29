@@ -11,7 +11,6 @@ use self::regex::Regex;
 
 use self::serde_json::Value as JsonValue;
 
-use std::collections::HashMap;
 use self::url::Url;
 use std::io::Read;
 use std::path::Path;
@@ -27,6 +26,7 @@ use self::time::Duration;
 
 use error::Error;
 use types::Message;
+use types::Room;
 
 
 // from https://stackoverflow.com/a/43992218/1592377
@@ -134,7 +134,18 @@ macro_rules! thumb {
     };
 }
 
-pub fn get_rooms_from_json(r: JsonValue, userid: &str) -> Result<HashMap<String, String>, Error> {
+pub fn evc(events: &JsonValue, t: &str, field: &str) -> String {
+    if let Some(arr) = events.as_array() {
+        return match arr.iter().find(|x| x["type"] == t) {
+            Some(js) => String::from(js["content"][field].as_str().unwrap_or("")),
+            None => String::new(),
+        };
+    }
+
+    String::new()
+}
+
+pub fn get_rooms_from_json(r: JsonValue, userid: &str) -> Result<Vec<Room>, Error> {
     let rooms = &r["rooms"];
     // TODO: do something with invite and leave
     //let invite = rooms["invite"].as_object().ok_or(Error::BackendError)?;
@@ -142,14 +153,22 @@ pub fn get_rooms_from_json(r: JsonValue, userid: &str) -> Result<HashMap<String,
 
     let join = rooms["join"].as_object().ok_or(Error::BackendError)?;
 
-    let mut rooms_map: HashMap<String, String> = HashMap::new();
+    let mut rooms: Vec<Room> = vec![];
     for k in join.keys() {
         let room = join.get(k).ok_or(Error::BackendError)?;
-        let name = calculate_room_name(&room["state"]["events"], userid)?;
-        rooms_map.insert(k.clone(), name);
+        let stevents = &room["state"]["events"];
+        let name = calculate_room_name(stevents, userid)?;
+        let mut r = Room::new(k.clone(), name);
+
+        r.avatar = evc(stevents, "m.room.avatar", "url");
+        r.alias = evc(stevents, "m.room.canonical_alias", "alias");
+        r.topic = evc(stevents, "m.room.topic", "topic");
+        r.notifications = room["unread_notifications"]["notification_count"]
+            .as_i64().unwrap_or(0) as i32;
+        rooms.push(r);
     }
 
-    Ok(rooms_map)
+    Ok(rooms)
 }
 
 pub fn get_rooms_timeline_from_json(baseu: &Url, r: JsonValue) -> Result<Vec<Message>, Error> {
@@ -417,6 +436,7 @@ pub fn calculate_room_name(roomst: &JsonValue, userid: &str) -> Result<String, E
 pub fn parse_room_message(baseu: &Url, roomid: String, msg: &JsonValue) -> Message {
     let sender = msg["sender"].as_str().unwrap_or("");
     let age = msg["age"].as_i64().unwrap_or(0);
+    let id = msg["id"].as_str().unwrap_or("");
 
     let c = &msg["content"];
     let mtype = c["msgtype"].as_str().unwrap_or("");
@@ -442,6 +462,7 @@ pub fn parse_room_message(baseu: &Url, roomid: String, msg: &JsonValue) -> Messa
         room: roomid.clone(),
         url: url,
         thumb: thumb,
+        id: String::from(id),
     }
 }
 

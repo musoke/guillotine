@@ -298,31 +298,37 @@ impl AppOp {
         self.backend.send(BKCommand::Sync).unwrap();
     }
 
-    pub fn set_rooms(&mut self, rooms: HashMap<String, String>, def: Option<(String, String)>) {
+    pub fn set_rooms(&mut self, rooms: Vec<Room>, def: Option<Room>) {
         let store: gtk::TreeStore = self.gtk_builder.get_object("rooms_tree_store")
             .expect("Couldn't find rooms_tree_store in ui file.");
 
-        let mut array: Vec<(String, String)> = vec![];
-        for (id, name) in rooms {
-            array.push((name, id));
+        let mut array: Vec<Room> = vec![];
+
+        for r in rooms {
+            array.push(r);
         }
 
-        array.sort_by(|x, y| x.0.to_lowercase().cmp(&y.0.to_lowercase()));
+        array.sort_by(|x, y| x.name.to_lowercase().cmp(&y.name.to_lowercase()));
 
-        let mut default: Option<(String, String)> = def;
+        let mut default: Option<Room> = def;
 
         for v in array {
             if default.is_none() {
-                default = Some((v.0.clone(), v.1.clone()));
+                default = Some(v.clone());
             }
 
+            let ns = match v.notifications {
+                0 => String::new(),
+                i => format!("{}", i),
+            };
+
             store.insert_with_values(None, None,
-                &[0, 1],
-                &[&v.0, &v.1]);
+                &[0, 1, 2],
+                &[&v.name, &v.id, &ns]);
         }
 
         if let Some(def) = default {
-            self.set_active_room(def.1, def.0);
+            self.set_active_room(def.id, def.name);
         } else {
             self.room_panel(RoomPanel::NoRoom);
         }
@@ -434,9 +440,38 @@ impl AppOp {
                 MsgPos::Bottom => messages.add(&msg),
                 MsgPos::Top => messages.insert(&msg, 1),
             };
-
         } else {
-            // TODO: update the unread messages count in room list
+            self.update_room_notifications(&msg.room, |n| n + 1);
+        }
+    }
+
+    pub fn update_room_notifications(&self, roomid: &str, f: fn(i32) -> i32) {
+        let store: gtk::TreeStore = self.gtk_builder.get_object("rooms_tree_store")
+            .expect("Couldn't find rooms_tree_store in ui file.");
+
+        if let Some(iter) = store.get_iter_first() {
+            loop {
+                let v1 = store.get_value(&iter, 1);
+                let id: &str = v1.get().unwrap();
+                let v2 = store.get_value(&iter, 2);
+                let ns: &str = v2.get().unwrap();
+                let res: Result<i32, _> = ns.parse();
+                let n: i32 = f(res.unwrap_or(0));
+                let formatted = match n {
+                    0 => String::from(""),
+                    i => format!("{}", i),
+                };
+                if id == roomid {
+                    store.set_value(&iter, 2, &gtk::Value::from(&formatted));
+                }
+                if !store.iter_next(&iter) { break; }
+            }
+        }
+    }
+
+    pub fn mark_as_read(&self, msgs: Vec<Message>) {
+        if let Some(msg) = msgs.iter().filter(|x| x.room == self.active_room).last() {
+            self.backend.send(BKCommand::MarkAsRead(msg.room.clone(), msg.id.clone())).unwrap();
         }
     }
 
@@ -641,6 +676,7 @@ impl App {
 
                     if !msgs.is_empty() {
                         theop.lock().unwrap().scroll_down();
+                        theop.lock().unwrap().mark_as_read(msgs);
                     }
 
                     theop.lock().unwrap().room_panel(RoomPanel::Room);
@@ -670,6 +706,9 @@ impl App {
                 },
                 Ok(BKResponse::JoinRoom) => {
                     theop.lock().unwrap().reload_rooms();
+                },
+                Ok(BKResponse::MarkedAsRead(r, _)) => {
+                    theop.lock().unwrap().update_room_notifications(&r, |_| 0);
                 },
                 // errors
                 Ok(err) => {

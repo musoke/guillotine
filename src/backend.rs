@@ -11,7 +11,6 @@ use self::serde_json::Value as JsonValue;
 
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::collections::HashMap;
 use self::url::Url;
 use std::sync::mpsc::{Sender, Receiver};
 use std::sync::mpsc::channel;
@@ -62,6 +61,7 @@ pub enum BKCommand {
     DirectoryProtocols,
     DirectorySearch(String, String, bool),
     JoinRoom(String),
+    MarkAsRead(String, String),
 }
 
 #[derive(Debug)]
@@ -70,7 +70,7 @@ pub enum BKResponse {
     Name(String),
     Avatar(String),
     Sync,
-    Rooms(HashMap<String, String>, Option<(String, String)>),
+    Rooms(Vec<Room>, Option<Room>),
     RoomDetail(String, String),
     RoomAvatar(String),
     RoomMessages(Vec<Message>),
@@ -80,6 +80,7 @@ pub enum BKResponse {
     DirectoryProtocols(Vec<Protocol>),
     DirectorySearch(Vec<Room>),
     JoinRoom,
+    MarkedAsRead(String, String),
 
     //errors
     UserNameError(Error),
@@ -96,6 +97,7 @@ pub enum BKResponse {
     CommandError(Error),
     DirectoryError(Error),
     JoinRoomError(Error),
+    MarkAsReadError(Error),
 }
 
 
@@ -193,6 +195,10 @@ impl Backend {
             Ok(BKCommand::JoinRoom(roomid)) => {
                 let r = self.join_room(roomid);
                 bkerror!(r, tx, BKResponse::JoinRoomError);
+            },
+            Ok(BKCommand::MarkAsRead(roomid, evid)) => {
+                let r = self.mark_as_read(roomid, evid);
+                bkerror!(r, tx, BKResponse::MarkAsReadError);
             },
             Ok(BKCommand::ShutDown) => {
                 return false;
@@ -390,11 +396,11 @@ impl Backend {
                 if since.is_empty() {
                     let rooms = get_rooms_from_json(r, &userid).unwrap();
 
-                    let mut def: Option<(String, String)> = None;
+                    let mut def: Option<Room> = None;
                     let jtr = data.lock().unwrap().join_to_room.clone();
                     if !jtr.is_empty() {
-                        if let Some(name) = rooms.iter().find(|x| *(x.0) == jtr) {
-                            def = Some((name.1.clone(), name.0.clone()));
+                        if let Some(r) = rooms.iter().find(|x| x.id == jtr) {
+                            def = Some(r.clone());
                         }
                     }
 
@@ -486,7 +492,6 @@ impl Backend {
             params = params + &format!("&from={}", msg_batch);
         }
         url = url.join(&params)?;
-
 
         let tx = self.tx.clone();
         let data = self.data.clone();
@@ -688,16 +693,15 @@ impl Backend {
                 let mut rooms: Vec<Room> = vec![];
                 for room in r["chunk"].as_array().unwrap() {
                     let alias = String::from(room["canonical_alias"].as_str().unwrap_or(""));
-                    let r = Room {
-                        alias: alias,
-                        id: String::from(room["room_id"].as_str().unwrap_or("")),
-                        avatar: String::from(room["avatar_url"].as_str().unwrap_or("")),
-                        name: String::from(room["name"].as_str().unwrap_or("")),
-                        topic: String::from(room["topic"].as_str().unwrap_or("")),
-                        members: room["num_joined_members"].as_i64().unwrap_or(0) as i32,
-                        world_readable: room["world_readable"].as_bool().unwrap_or(false),
-                        guest_can_join: room["guest_can_join"].as_bool().unwrap_or(false),
-                    };
+                    let id = String::from(room["room_id"].as_str().unwrap_or(""));
+                    let name = String::from(room["name"].as_str().unwrap_or(""));
+                    let mut r = Room::new(id, name);
+                    r.alias = alias;
+                    r.avatar = String::from(room["avatar_url"].as_str().unwrap_or(""));
+                    r.topic = String::from(room["topic"].as_str().unwrap_or(""));
+                    r.members = room["num_joined_members"].as_i64().unwrap_or(0) as i32;
+                    r.world_readable = room["world_readable"].as_bool().unwrap_or(false);
+                    r.guest_can_join = room["guest_can_join"].as_bool().unwrap_or(false);
                     rooms.push(r);
                 }
 
@@ -723,6 +727,24 @@ impl Backend {
                 tx.send(BKResponse::JoinRoom).unwrap();
             },
             |err| { tx.send(BKResponse::JoinRoomError(err)).unwrap(); }
+        );
+
+        Ok(())
+    }
+
+    pub fn mark_as_read(&self, roomid: String, eventid: String) -> Result<(), Error> {
+        let baseu = self.get_base_url()?;
+        let tk = self.data.lock().unwrap().access_token.clone();
+        let mut url = baseu.join("/_matrix/client/r0/rooms/")?;
+        url = url.join(&format!("{}/receipt/m.read/{}", roomid, eventid))?;
+        url = url.join(&format!("?access_token={}", tk))?;
+
+        let tx = self.tx.clone();
+        let r = roomid.clone();
+        let e = eventid.clone();
+        post!(&url,
+            move |_: JsonValue| { tx.send(BKResponse::MarkedAsRead(r, e)).unwrap(); },
+            |err| { tx.send(BKResponse::MarkAsReadError(err)).unwrap(); }
         );
 
         Ok(())
