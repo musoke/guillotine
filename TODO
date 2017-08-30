@@ -6,7 +6,6 @@ Fixs:
 Functionality:
     * Register
     * Leave room
-    * load more messages if all are join/leave
     * Room creation
     * Set topic
     * Set room avatar
