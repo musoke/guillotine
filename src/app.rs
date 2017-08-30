@@ -499,10 +499,9 @@ impl AppOp {
         }
     }
 
-    pub fn mark_as_read(&self, msgs: Vec<Message>) {
-        if let Some(msg) = msgs.iter().filter(|x| x.room == self.active_room).last() {
-            self.backend.send(BKCommand::MarkAsRead(msg.room.clone(), msg.id.clone())).unwrap();
-        }
+    pub fn mark_as_read(&self, msg: &Message) {
+        self.backend.send(BKCommand::MarkAsRead(msg.room.clone(),
+                                                msg.id.clone())).unwrap();
     }
 
     pub fn add_room_member(&mut self, m: Member) {
@@ -662,8 +661,11 @@ impl AppOp {
         }
 
         if !msgs.is_empty() {
-            self.scroll_down();
-            self.mark_as_read(msgs);
+            let fs = msgs.iter().filter(|x| x.room == self.active_room);
+            if let Some(msg) = fs.last() {
+                self.scroll_down();
+                self.mark_as_read(msg);
+            }
         }
 
         if init {
