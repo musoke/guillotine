@@ -489,40 +489,30 @@ impl Backend {
     pub fn get_room_messages(&self, roomid: String, to: bool) -> Result<(), Error> {
         let baseu = self.get_base_url()?;
         let tk = self.data.lock().unwrap().access_token.clone();
-        let mut url = baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid.clone() + "/"))?.join("messages")?;
-
-        let mut params = format!("?access_token={}&dir=b&limit=8", tk);
-
-        if to {
-            let msg_batch = self.data.lock().unwrap().msgs_batch_end.clone();
-            params = params + &format!("&from={}", msg_batch);
-        }
-        url = url.join(&params)?;
 
         let tx = self.tx.clone();
         let data = self.data.clone();
-        get!(&url,
-            |r: JsonValue| {
-                let mut ms: Vec<Message> = vec![];
 
-                data.lock().unwrap().msgs_batch_start = String::from(r["start"].as_str().unwrap_or(""));
-                data.lock().unwrap().msgs_batch_end = String::from(r["end"].as_str().unwrap_or(""));
+        thread::spawn(move || {
+            let end = match to {
+                true => Some(data.lock().unwrap().msgs_batch_end.clone()),
+                false => None,
+            };
+            match get_initial_room_messages(&baseu, tk, roomid, 10 as usize, 10, end) {
+                Ok((ms, start, end)) => {
+                    data.lock().unwrap().msgs_batch_start = start;
+                    data.lock().unwrap().msgs_batch_end = end;
 
-                for msg in r["chunk"].as_array().unwrap().iter().rev() {
-                    if msg["type"].as_str().unwrap_or("") != "m.room.message" {
-                        continue;
-                    }
-
-                    let m = parse_room_message(&baseu, roomid.clone(), msg);
-                    ms.push(m);
+                    match to {
+                        false => tx.send(BKResponse::RoomMessagesInit(ms)).unwrap(),
+                        true => tx.send(BKResponse::RoomMessagesTo(ms)).unwrap(),
+                    };
+                },
+                Err(err) => {
+                    tx.send(BKResponse::RoomMessagesError(err)).unwrap();
                 }
-                match to {
-                    false => tx.send(BKResponse::RoomMessagesInit(ms)).unwrap(),
-                    true => tx.send(BKResponse::RoomMessagesTo(ms)).unwrap(),
-                };
-            },
-            |err| { tx.send(BKResponse::RoomMessagesError(err)).unwrap() }
-        );
+            }
+        });
 
         Ok(())
     }

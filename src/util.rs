@@ -482,3 +482,55 @@ pub fn markup(s: &str) -> String {
 
     out
 }
+
+pub fn get_initial_room_messages(baseu: &Url, tk: String, roomid: String, get: usize, limit: i32, end: Option<String>) -> Result<(Vec<Message>, String, String), Error> {
+    let mut url = baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid.clone() + "/"))?.join("messages")?;
+    let mut params = format!("?access_token={}&dir=b&limit={}", tk, limit);
+    let mut ms: Vec<Message> = vec![];
+    let mut nstart;
+    let mut nend;
+
+    match end {
+        Some(ref e) => {
+            params = params + &format!("&from={}", e);
+        },
+        None => {},
+    };
+
+    url = url.join(&params)?;
+
+    match json_q("get", &url, &json!(null)) {
+        Ok(r) => {
+            nend = String::from(r["end"].as_str().unwrap_or(""));
+            nstart = String::from(r["start"].as_str().unwrap_or(""));
+
+            let array = r["chunk"].as_array();
+            if array.is_none() || array.unwrap().len() == 0 {
+                return Ok((ms, nstart, nend));
+            }
+
+            for msg in array.unwrap().iter().rev() {
+                if msg["type"].as_str().unwrap_or("") != "m.room.message" {
+                    continue;
+                }
+
+                let m = parse_room_message(&baseu, roomid.clone(), msg);
+                ms.push(m);
+            }
+
+            if ms.len() < get {
+                let (more, s, e) = get_initial_room_messages(baseu, tk, roomid, get, limit * 2, Some(nend))?;
+                nstart = s;
+                nend = e;
+                for m in more.iter().rev() {
+                    ms.insert(0, m.clone());
+                }
+            }
+
+            Ok((ms, nstart, nend))
+        },
+        Err(err) => {
+            Err(err)
+        }
+    }
+}

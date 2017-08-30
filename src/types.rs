@@ -14,6 +14,21 @@ pub struct Message {
     pub id: String,
 }
 
+impl Clone for Message {
+    fn clone(&self) -> Message {
+        Message {
+            sender: self.sender.clone(),
+            mtype: self.mtype.clone(),
+            body: self.body.clone(),
+            date: self.date.clone(),
+            room: self.room.clone(),
+            thumb: self.thumb.clone(),
+            url: self.url.clone(),
+            id: self.id.clone(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Member {
     pub alias: String,
