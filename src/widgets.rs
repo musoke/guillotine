@@ -1,6 +1,7 @@
 extern crate gtk;
 extern crate gdk_pixbuf;
 extern crate chrono;
+extern crate pango;
 
 use self::gdk_pixbuf::Pixbuf;
 use self::gtk::prelude::*;
@@ -124,6 +125,7 @@ impl<'a> MessageBox<'a> {
         let msg = gtk::Label::new("");
         msg.set_markup(&util::markup(body));
         msg.set_line_wrap(true);
+        msg.set_line_wrap_mode(pango::WrapMode::WordChar);
         msg.set_justify(gtk::Justification::Left);
         msg.set_halign(gtk::Align::Start);
         msg.set_alignment(0 as f32, 0 as f32);
@@ -232,12 +234,14 @@ impl<'a> RoomBox<'a> {
         let msg = gtk::Label::new("");
         msg.set_line_wrap(true);
         msg.set_markup(&format!("<b>{}</b>", mname));
+        msg.set_line_wrap_mode(pango::WrapMode::WordChar);
         msg.set_justify(gtk::Justification::Left);
         msg.set_halign(gtk::Align::Start);
         msg.set_alignment(0 as f32, 0 as f32);
 
         let topic = gtk::Label::new("");
         topic.set_line_wrap(true);
+        msg.set_line_wrap_mode(pango::WrapMode::WordChar);
         topic.set_markup(&util::markup(&r.topic));
         topic.set_justify(gtk::Justification::Left);
         topic.set_halign(gtk::Align::Start);
