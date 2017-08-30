@@ -12,15 +12,14 @@ Functionality:
     * Set room avatar
     * Change user display name
     * Change user avatar
-    * show join/leave events?
     * Show media messages (images / videos)
     * Send media messages (images / videos)
     * Store last read message to show differently
 
 Events to manage:
-    * New room events
+    * Join / leave from current user
     * Invite event
-    * Join events
+    * Join / leave in room
 
 Other stuff:
     * Set the app name correctly to show in the shell topbar
