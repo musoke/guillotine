@@ -139,8 +139,10 @@ impl<'a> MessageBox<'a> {
         let bx = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         let image = gtk::Image::new();
 
-        if let Ok(pixbuf) = Pixbuf::new_from_file_at_size(&msg.thumb, 200, 200) {
+        if let Ok(pixbuf) = Pixbuf::new_from_file_at_scale(&msg.thumb, 200, 200, true) {
             image.set_from_pixbuf(&pixbuf);
+        } else {
+            image.set_from_file(&msg.thumb);
         }
 
         let viewbtn = gtk::Button::new();

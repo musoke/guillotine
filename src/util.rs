@@ -448,8 +448,11 @@ pub fn parse_room_message(baseu: &Url, roomid: String, msg: &JsonValue) -> Messa
     match mtype {
         "m.image" => {
             url = String::from(c["url"].as_str().unwrap_or(""));
-            let t = c["info"]["thumbnail_url"].as_str().unwrap_or("");
-            thumb = media!(baseu, t).unwrap_or(String::from(""));
+            let mut t = String::from(c["info"]["thumbnail_url"].as_str().unwrap_or(""));
+            if t.is_empty() && !url.is_empty() {
+                t = url.clone();
+            }
+            thumb = media!(baseu, &t).unwrap_or(String::from(""));
         },
         _ => {},
     };
