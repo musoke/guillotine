@@ -1,4 +1,5 @@
 Fixs:
+    * Fix room list after join
     * Ignore launched threads when changing room...
     * Sort rooms by last message or fav?
 
@@ -15,6 +16,11 @@ Functionality:
     * Show media messages (images / videos)
     * Send media messages (images / videos)
     * Store last read message to show differently
+
+Events to manage:
+    * New room events
+    * Invite event
+    * Join events
 
 Other stuff:
     * Set the app name correctly to show in the shell topbar

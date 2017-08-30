@@ -55,6 +55,7 @@ pub enum BKCommand {
     GetRoomMessagesTo(String),
     GetAvatarAsync(String, Sender<String>),
     GetThumbAsync(String, Sender<String>),
+    GetUserInfoAsync(String, Sender<(String, String)>),
     SendMsg(String, String),
     SetRoom(String),
     ShutDown,
@@ -74,6 +75,7 @@ pub enum BKResponse {
     RoomDetail(String, String),
     RoomAvatar(String),
     RoomMessages(Vec<Message>),
+    RoomMessagesInit(Vec<Message>),
     RoomMessagesTo(Vec<Message>),
     RoomMembers(Vec<Member>),
     SendMsg,
@@ -160,6 +162,10 @@ impl Backend {
             },
             Ok(BKCommand::GetAvatarAsync(sender, ctx)) => {
                 let r = self.get_avatar_async(&sender, ctx);
+                bkerror!(r, tx, BKResponse::CommandError);
+            },
+            Ok(BKCommand::GetUserInfoAsync(sender, ctx)) => {
+                let r = self.get_user_info_async(&sender, ctx);
                 bkerror!(r, tx, BKResponse::CommandError);
             },
             Ok(BKCommand::GetThumbAsync(media, ctx)) => {
@@ -347,7 +353,7 @@ impl Backend {
         let tx = self.tx.clone();
         thread::spawn(move || {
             match get_user_avatar(&baseu, &userid) {
-                Ok(fname) => {
+                Ok((_, fname)) => {
                     tx.send(BKResponse::Avatar(fname)).unwrap();
                 },
                 Err(err) => {
@@ -511,7 +517,7 @@ impl Backend {
                     ms.push(m);
                 }
                 match to {
-                    false => tx.send(BKResponse::RoomMessages(ms)).unwrap(),
+                    false => tx.send(BKResponse::RoomMessagesInit(ms)).unwrap(),
                     true => tx.send(BKResponse::RoomMessagesTo(ms)).unwrap(),
                 };
             },
@@ -569,8 +575,22 @@ impl Backend {
         let u = String::from(uid);
         thread::spawn(move || {
             match get_user_avatar(&baseu, &u) {
-                Ok(fname) => { tx.send(fname).unwrap(); },
+                Ok((_, fname)) => { tx.send(fname).unwrap(); },
                 Err(_) => { tx.send(String::from("")).unwrap(); }
+            };
+        });
+
+        Ok(())
+    }
+
+    pub fn get_user_info_async(&self, uid: &str, tx: Sender<(String, String)>) -> Result<(), Error> {
+        let baseu = self.get_base_url()?;
+
+        let u = String::from(uid);
+        thread::spawn(move || {
+            match get_user_avatar(&baseu, &u) {
+                Ok(info) => { tx.send(info).unwrap(); },
+                Err(_) => { tx.send((String::new(), String::new())).unwrap(); }
             };
         });
 

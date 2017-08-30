@@ -276,22 +276,22 @@ pub fn json_q(method: &str, url: &Url, attrs: &JsonValue) -> Result<JsonValue, E
     }
 }
 
-pub fn get_user_avatar(baseu: &Url, userid: &str) -> Result<String, Error> {
+pub fn get_user_avatar(baseu: &Url, userid: &str) -> Result<(String, String), Error> {
     let url = baseu.join("/_matrix/client/r0/profile/")?.join(userid)?;
     let attrs = json!(null);
 
     match json_q("get", &url, &attrs) {
         Ok(js) => {
+            let name = String::from(js["displayname"].as_str().unwrap_or("@"));
             match js["avatar_url"].as_str() {
-                Some(url) => Ok(thumb!(baseu, &url)?),
+                Some(url) => Ok((name.clone(), thumb!(baseu, &url)?)),
                 None => {
-                    let name = js["displayname"].as_str().unwrap_or("@");
-                    Ok(draw_identicon(userid, String::from(name))?)
+                    Ok((name.clone(), draw_identicon(userid, name)?))
                 },
             }
         },
         Err(_) => {
-            Ok(draw_identicon(userid, String::from(&userid[1..2]))?)
+            Ok((String::from(userid), draw_identicon(userid, String::from(&userid[1..2]))?))
         }
     }
 }

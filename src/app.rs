@@ -1,8 +1,10 @@
+extern crate glib;
 extern crate gtk;
 extern crate gio;
 extern crate gdk_pixbuf;
-
 extern crate secret_service;
+extern crate libnotify;
+
 use self::secret_service::SecretService;
 use self::secret_service::EncryptionType;
 
@@ -45,6 +47,7 @@ pub struct AppOp {
     pub backend: Sender<backend::BKCommand>,
     pub active_room: String,
     pub members: HashMap<String, Member>,
+    pub rooms: HashMap<String, Room>,
     pub load_more_btn: gtk::Button,
 }
 
@@ -124,7 +127,6 @@ impl AppOp {
         let ser = server_url.clone();
         self.backend.send(BKCommand::Register(uname, pass, ser)).unwrap();
         self.hide_popup();
-        self.clear_room_list();
     }
 
     pub fn connect(&self, username: String, password: String, server: Option<String>) {
@@ -145,7 +147,6 @@ impl AppOp {
         let ser = server_url.clone();
         self.backend.send(BKCommand::Login(uname, pass, ser)).unwrap();
         self.hide_popup();
-        self.clear_room_list();
     }
 
     pub fn connect_guest(&self, server: Option<String>) {
@@ -157,7 +158,6 @@ impl AppOp {
         self.show_user_loading();
         self.backend.send(BKCommand::Guest(server_url)).unwrap();
         self.hide_popup();
-        self.clear_room_list();
     }
 
     pub fn get_username(&self) {
@@ -295,7 +295,11 @@ impl AppOp {
     }
 
     pub fn sync(&self) {
-        self.backend.send(BKCommand::Sync).unwrap();
+        let tx = self.backend.clone();
+        gtk::timeout_add(1000, move || {
+            tx.send(BKCommand::Sync).unwrap();
+            gtk::Continue(false)
+        });
     }
 
     pub fn set_rooms(&mut self, rooms: Vec<Room>, def: Option<Room>) {
@@ -304,7 +308,11 @@ impl AppOp {
 
         let mut array: Vec<Room> = vec![];
 
+        self.rooms.clear();
+        store.clear();
+
         for r in rooms {
+            self.rooms.insert(r.id.clone(), r.clone());
             array.push(r);
         }
 
@@ -340,15 +348,8 @@ impl AppOp {
             .expect("Can't find main_content_stack in ui file.")
             .set_visible_child_name("Chat");
 
-        self.clear_room_list();
         self.room_panel(RoomPanel::Loading);
         self.backend.send(BKCommand::SyncForced).unwrap();
-    }
-
-    pub fn clear_room_list(&self) {
-        let store: gtk::TreeStore = self.gtk_builder.get_object("rooms_tree_store")
-            .expect("Couldn't find rooms_tree_store in ui file.");
-        store.clear();
     }
 
     pub fn set_active_room(&mut self, room: String, name: String) {
@@ -604,6 +605,50 @@ impl AppOp {
         btn.set_label("Search");
         btn.set_sensitive(true);
     }
+
+    pub fn notify(&self, msg: &Message) {
+        let roomname = match self.rooms.get(&msg.room) {
+            Some(r) => r.name.clone(),
+            None => msg.room.clone(),
+        };
+
+        let mut body = msg.body.clone();
+        body.truncate(80);
+
+        let (tx, rx): (Sender<(String, String)>, Receiver<(String, String)>) = channel();
+        self.backend.send(BKCommand::GetUserInfoAsync(msg.sender.clone(), tx)).unwrap();
+        gtk::timeout_add(50, move || {
+            match rx.try_recv() {
+                Err(_) => gtk::Continue(true),
+                Ok((name, avatar)) => {
+                    let summary = format!("@{} / {}", name, roomname);
+                    let n = libnotify::Notification::new(&summary,
+                                                         Some(&body[..]),
+                                                         Some(&avatar[..]));
+                    n.show().unwrap();
+                    gtk::Continue(false)
+                }
+            }
+        });
+    }
+
+    pub fn show_room_messages(&self, msgs: Vec<Message>, init: bool) {
+        for msg in msgs.iter() {
+            self.add_room_message(msg, MsgPos::Bottom);
+            if !init {
+                self.notify(msg);
+            }
+        }
+
+        if !msgs.is_empty() {
+            self.scroll_down();
+            self.mark_as_read(msgs);
+        }
+
+        if init {
+            self.room_panel(RoomPanel::Room);
+        }
+    }
 }
 
 /// State for the main thread.
@@ -639,11 +684,12 @@ impl App {
                 backend: apptx,
                 active_room: String::from(""),
                 members: HashMap::new(),
+                rooms: HashMap::new(),
             }
         ));
 
         let theop = op.clone();
-        gtk::timeout_add(50, move || {
+        gtk::timeout_add(500, move || {
             let recv = rx.try_recv();
             match recv {
                 Ok(BKResponse::Token(uid, _)) => {
@@ -673,16 +719,10 @@ impl App {
                     theop.lock().unwrap().set_room_avatar(avatar);
                 },
                 Ok(BKResponse::RoomMessages(msgs)) => {
-                    for msg in msgs.iter() {
-                        theop.lock().unwrap().add_room_message(msg, MsgPos::Bottom);
-                    }
-
-                    if !msgs.is_empty() {
-                        theop.lock().unwrap().scroll_down();
-                        theop.lock().unwrap().mark_as_read(msgs);
-                    }
-
-                    theop.lock().unwrap().room_panel(RoomPanel::Room);
+                    theop.lock().unwrap().show_room_messages(msgs, false);
+                },
+                Ok(BKResponse::RoomMessagesInit(msgs)) => {
+                    theop.lock().unwrap().show_room_messages(msgs, true);
                 },
                 Ok(BKResponse::RoomMessagesTo(msgs)) => {
                     for msg in msgs.iter().rev() {
@@ -941,6 +981,14 @@ impl App {
     pub fn run(self) {
         self.op.lock().unwrap().init();
 
+        if let Err(err) = libnotify::init("guillotine") {
+            println!("Error: can't init notifications: {}", err);
+        };
+
+        glib::set_application_name("guillotine");
+        glib::set_prgname(Some("guillotine"));
         gtk::main();
+
+        libnotify::uninit();
     }
 }
