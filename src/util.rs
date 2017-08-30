@@ -354,51 +354,17 @@ pub fn calculate_hash<T: Hash>(t: &T) -> u64 {
 }
 
 pub fn draw_identicon(fname: &str, name: String) -> Result<String, Error> {
-    let colors = vec![Color {
-                          r: 69,
-                          g: 189,
-                          b: 243,
-                      },
-                      Color {
-                          r: 224,
-                          g: 143,
-                          b: 112,
-                      },
-                      Color {
-                          r: 77,
-                          g: 182,
-                          b: 172,
-                      },
-                      Color {
-                          r: 149,
-                          g: 117,
-                          b: 205,
-                      },
-                      Color {
-                          r: 176,
-                          g: 133,
-                          b: 94,
-                      },
-                      Color {
-                          r: 240,
-                          g: 98,
-                          b: 146,
-                      },
-                      Color {
-                          r: 163,
-                          g: 211,
-                          b: 108,
-                      },
-                      Color {
-                          r: 121,
-                          g: 134,
-                          b: 203,
-                      },
-                      Color {
-                          r: 241,
-                          g: 185,
-                          b: 29,
-                      }];
+    let colors = vec![
+        Color { r: 69,  g: 189, b: 243, },
+        Color { r: 224, g: 143, b: 112, },
+        Color { r: 77,  g: 182, b: 172, },
+        Color { r: 149, g: 117, b: 205, },
+        Color { r: 176, g: 133, b: 94,  },
+        Color { r: 240, g: 98,  b: 146, },
+        Color { r: 163, g: 211, b: 108, },
+        Color { r: 121, g: 134, b: 203, },
+        Color { r: 241, g: 185, b: 29,  },
+    ];
 
     let xdg_dirs = xdg::BaseDirectories::with_prefix("guillotine").unwrap();
     let fname =
@@ -520,6 +486,11 @@ pub fn markup(s: &str) -> String {
     out
 }
 
+/// Recursive function that tries to get at least @get Messages for the room.
+///
+/// The @limit is the first "limit" param in the GET request.
+/// The @end param is used as "from" param in the GET request, so we'll get
+/// messages before that.
 pub fn get_initial_room_messages(baseu: &Url,
                                  tk: String,
                                  roomid: String,
@@ -543,37 +514,33 @@ pub fn get_initial_room_messages(baseu: &Url,
 
     url = url.join(&params)?;
 
-    match json_q("get", &url, &json!(null)) {
-        Ok(r) => {
-            nend = String::from(r["end"].as_str().unwrap_or(""));
-            nstart = String::from(r["start"].as_str().unwrap_or(""));
+    let r = json_q("get", &url, &json!(null))?;
+    nend = String::from(r["end"].as_str().unwrap_or(""));
+    nstart = String::from(r["start"].as_str().unwrap_or(""));
 
-            let array = r["chunk"].as_array();
-            if array.is_none() || array.unwrap().len() == 0 {
-                return Ok((ms, nstart, nend));
-            }
-
-            for msg in array.unwrap().iter().rev() {
-                if msg["type"].as_str().unwrap_or("") != "m.room.message" {
-                    continue;
-                }
-
-                let m = parse_room_message(&baseu, roomid.clone(), msg);
-                ms.push(m);
-            }
-
-            if ms.len() < get {
-                let (more, s, e) =
-                    get_initial_room_messages(baseu, tk, roomid, get, limit * 2, Some(nend))?;
-                nstart = s;
-                nend = e;
-                for m in more.iter().rev() {
-                    ms.insert(0, m.clone());
-                }
-            }
-
-            Ok((ms, nstart, nend))
-        }
-        Err(err) => Err(err),
+    let array = r["chunk"].as_array();
+    if array.is_none() || array.unwrap().len() == 0 {
+        return Ok((ms, nstart, nend));
     }
+
+    for msg in array.unwrap().iter().rev() {
+        if msg["type"].as_str().unwrap_or("") != "m.room.message" {
+            continue;
+        }
+
+        let m = parse_room_message(&baseu, roomid.clone(), msg);
+        ms.push(m);
+    }
+
+    if ms.len() < get {
+        let (more, s, e) =
+            get_initial_room_messages(baseu, tk, roomid, get, limit * 2, Some(nend))?;
+        nstart = s;
+        nend = e;
+        for m in more.iter().rev() {
+            ms.insert(0, m.clone());
+        }
+    }
+
+    Ok((ms, nstart, nend))
 }
