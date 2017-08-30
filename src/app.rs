@@ -66,35 +66,58 @@ pub enum RoomPanel {
 
 impl AppOp {
     pub fn login(&self) {
-        let user_entry: gtk::Entry = self.gtk_builder.get_object("login_username")
+        let user_entry: gtk::Entry = self.gtk_builder
+            .get_object("login_username")
             .expect("Can't find login_username in ui file.");
-        let pass_entry: gtk::Entry = self.gtk_builder.get_object("login_password")
+        let pass_entry: gtk::Entry = self.gtk_builder
+            .get_object("login_password")
             .expect("Can't find login_password in ui file.");
-        let server_entry: gtk::Entry = self.gtk_builder.get_object("login_server")
+        let server_entry: gtk::Entry = self.gtk_builder
+            .get_object("login_server")
             .expect("Can't find login_server in ui file.");
 
-        let username = match user_entry.get_text() { Some(s) => s, None => String::from("") };
-        let password = match pass_entry.get_text() { Some(s) => s, None => String::from("") };
+        let username = match user_entry.get_text() {
+            Some(s) => s,
+            None => String::from(""),
+        };
+        let password = match pass_entry.get_text() {
+            Some(s) => s,
+            None => String::from(""),
+        };
 
         self.connect(username, password, server_entry.get_text());
     }
 
     pub fn register(&self) {
-        let user_entry: gtk::Entry = self.gtk_builder.get_object("register_username")
+        let user_entry: gtk::Entry = self.gtk_builder
+            .get_object("register_username")
             .expect("Can't find register_username in ui file.");
-        let pass_entry: gtk::Entry = self.gtk_builder.get_object("register_password")
+        let pass_entry: gtk::Entry = self.gtk_builder
+            .get_object("register_password")
             .expect("Can't find register_password in ui file.");
-        let pass_conf: gtk::Entry = self.gtk_builder.get_object("register_password_confirm")
+        let pass_conf: gtk::Entry = self.gtk_builder
+            .get_object("register_password_confirm")
             .expect("Can't find register_password_confirm in ui file.");
-        let server_entry: gtk::Entry = self.gtk_builder.get_object("register_server")
+        let server_entry: gtk::Entry = self.gtk_builder
+            .get_object("register_server")
             .expect("Can't find register_server in ui file.");
 
-        let username = match user_entry.get_text() { Some(s) => s, None => String::from("") };
-        let password = match pass_entry.get_text() { Some(s) => s, None => String::from("") };
-        let passconf = match pass_conf.get_text() { Some(s) => s, None => String::from("") };
+        let username = match user_entry.get_text() {
+            Some(s) => s,
+            None => String::from(""),
+        };
+        let password = match pass_entry.get_text() {
+            Some(s) => s,
+            None => String::from(""),
+        };
+        let passconf = match pass_conf.get_text() {
+            Some(s) => s,
+            None => String::from(""),
+        };
 
         if password != passconf {
-            let window: gtk::Window = self.gtk_builder.get_object("main_window")
+            let window: gtk::Window = self.gtk_builder
+                .get_object("main_window")
                 .expect("Couldn't find main_window in ui file.");
             let dialog = gtk::MessageDialog::new(Some(&window),
                                                  gtk::DIALOG_MODAL,
@@ -103,16 +126,14 @@ impl AppOp {
                                                  "Passwords didn't match, try again");
             dialog.show();
 
-            dialog.connect_response(move |d, _| {
-                d.destroy();
-            });
+            dialog.connect_response(move |d, _| { d.destroy(); });
 
             return;
         }
 
         let server_url = match server_entry.get_text() {
             Some(s) => s,
-            None => String::from("https://matrix.org")
+            None => String::from("https://matrix.org"),
         };
 
         //self.store_pass(username.clone(), password.clone(), server_url.clone())
@@ -132,7 +153,7 @@ impl AppOp {
     pub fn connect(&self, username: String, password: String, server: Option<String>) {
         let server_url = match server {
             Some(s) => s,
-            None => String::from("https://matrix.org")
+            None => String::from("https://matrix.org"),
         };
 
         self.store_pass(username.clone(), password.clone(), server_url.clone())
@@ -152,7 +173,7 @@ impl AppOp {
     pub fn connect_guest(&self, server: Option<String>) {
         let server_url = match server {
             Some(s) => s,
-            None => String::from("https://matrix.org")
+            None => String::from("https://matrix.org"),
         };
 
         self.show_user_loading();
@@ -204,7 +225,8 @@ impl AppOp {
     }
 
     pub fn hide_popup(&self) {
-        let user_menu: gtk::Popover = self.gtk_builder.get_object("user_menu")
+        let user_menu: gtk::Popover = self.gtk_builder
+            .get_object("user_menu")
             .expect("Couldn't find user_menu in ui file.");
         user_menu.hide();
     }
@@ -213,7 +235,11 @@ impl AppOp {
         self.backend.send(BKCommand::ShutDown).unwrap();
     }
 
-    pub fn store_pass(&self, username: String, password: String, server: String) -> Result<(), Error> {
+    pub fn store_pass(&self,
+                      username: String,
+                      password: String,
+                      server: String)
+                      -> Result<(), Error> {
         let ss = SecretService::new(EncryptionType::Dh)?;
         let collection = ss.get_default_collection()?;
 
@@ -256,18 +282,16 @@ impl AppOp {
         let attrs = p.get_attributes()?;
         let secret = p.get_secret()?;
 
-        let mut attr = attrs.iter().find(|&ref x| x.0 == "username")
+        let mut attr = attrs.iter()
+            .find(|&ref x| x.0 == "username")
             .ok_or(Error::SecretServiceError)?;
         let username = attr.1.clone();
-        attr = attrs.iter().find(|&ref x| x.0 == "server")
+        attr = attrs.iter()
+            .find(|&ref x| x.0 == "server")
             .ok_or(Error::SecretServiceError)?;
         let server = attr.1.clone();
 
-        let tup = (
-            username,
-            String::from_utf8(secret).unwrap(),
-            server,
-        );
+        let tup = (username, String::from_utf8(secret).unwrap(), server);
 
         Ok(tup)
     }
@@ -303,7 +327,8 @@ impl AppOp {
     }
 
     pub fn set_rooms(&mut self, rooms: Vec<Room>, def: Option<Room>) {
-        let store: gtk::TreeStore = self.gtk_builder.get_object("rooms_tree_store")
+        let store: gtk::TreeStore = self.gtk_builder
+            .get_object("rooms_tree_store")
             .expect("Couldn't find rooms_tree_store in ui file.");
 
         let mut array: Vec<Room> = vec![];
@@ -330,9 +355,7 @@ impl AppOp {
                 i => format!("{}", i),
             };
 
-            store.insert_with_values(None, None,
-                &[0, 1, 2],
-                &[&v.name, &v.id, &ns]);
+            store.insert_with_values(None, None, &[0, 1, 2], &[&v.name, &v.id, &ns]);
         }
 
         if let Some(def) = default {
@@ -391,7 +414,7 @@ impl AppOp {
                     .get_object::<gtk::Label>("room_name")
                     .expect("Can't find room_name in ui file.");
                 name_label.set_text(&value);
-            },
+            }
             "m.room.topic" => {
                 let topic_label = self.gtk_builder
                     .get_object::<gtk::Label>("room_topic")
@@ -399,7 +422,7 @@ impl AppOp {
                 topic_label.set_tooltip_text(&value[..]);
                 topic_label.set_text(&value);
             }
-            _ => { println!("no key {}", key) }
+            _ => println!("no key {}", key),
         };
     }
 
@@ -425,7 +448,7 @@ impl AppOp {
         let s = scroll.clone();
         gtk::timeout_add(500, move || {
             if let Some(adj) = s.get_vadjustment() {
-                    adj.set_value(adj.get_upper() - adj.get_page_size());
+                adj.set_value(adj.get_upper() - adj.get_page_size());
             }
             gtk::Continue(false)
         });
@@ -450,7 +473,8 @@ impl AppOp {
     }
 
     pub fn update_room_notifications(&self, roomid: &str, f: fn(i32) -> i32) {
-        let store: gtk::TreeStore = self.gtk_builder.get_object("rooms_tree_store")
+        let store: gtk::TreeStore = self.gtk_builder
+            .get_object("rooms_tree_store")
             .expect("Couldn't find rooms_tree_store in ui file.");
 
         if let Some(iter) = store.get_iter_first() {
@@ -468,7 +492,9 @@ impl AppOp {
                 if id == roomid {
                     store.set_value(&iter, 2, &gtk::Value::from(&formatted));
                 }
-                if !store.iter_next(&iter) { break; }
+                if !store.iter_next(&iter) {
+                    break;
+                }
             }
         }
     }
@@ -480,14 +506,13 @@ impl AppOp {
     }
 
     pub fn add_room_member(&mut self, m: Member) {
-        let store: gtk::ListStore = self.gtk_builder.get_object("members_store")
+        let store: gtk::ListStore = self.gtk_builder
+            .get_object("members_store")
             .expect("Couldn't find members_store in ui file.");
 
         let name = m.get_alias();
 
-        store.insert_with_values(None,
-            &[0, 1],
-            &[&name, &(m.uid)]);
+        store.insert_with_values(None, &[0, 1], &[&name, &(m.uid)]);
 
         self.members.insert(m.uid.clone(), m);
     }
@@ -536,9 +561,7 @@ impl AppOp {
         combo.clear();
 
         for p in protocols {
-            combo.insert_with_values(None,
-                &[0, 1],
-                &[&p.desc, &p.id]);
+            combo.insert_with_values(None, &[0, 1], &[&p.desc, &p.id]);
         }
 
         self.gtk_builder
@@ -560,7 +583,7 @@ impl AppOp {
             Some(it) => {
                 let v = combo_store.get_value(&it, 1);
                 v.get().unwrap()
-            },
+            }
             None => String::from(""),
         };
 
@@ -583,7 +606,9 @@ impl AppOp {
             }
         }
 
-        self.backend.send(BKCommand::DirectorySearch(q.get_text().unwrap(), protocol, more)).unwrap();
+        self.backend
+            .send(BKCommand::DirectorySearch(q.get_text().unwrap(), protocol, more))
+            .unwrap();
     }
 
     pub fn load_more_rooms(&self) {
@@ -617,17 +642,13 @@ impl AppOp {
 
         let (tx, rx): (Sender<(String, String)>, Receiver<(String, String)>) = channel();
         self.backend.send(BKCommand::GetUserInfoAsync(msg.sender.clone(), tx)).unwrap();
-        gtk::timeout_add(50, move || {
-            match rx.try_recv() {
-                Err(_) => gtk::Continue(true),
-                Ok((name, avatar)) => {
-                    let summary = format!("@{} / {}", name, roomname);
-                    let n = libnotify::Notification::new(&summary,
-                                                         Some(&body[..]),
-                                                         Some(&avatar[..]));
-                    n.show().unwrap();
-                    gtk::Continue(false)
-                }
+        gtk::timeout_add(50, move || match rx.try_recv() {
+            Err(_) => gtk::Continue(true),
+            Ok((name, avatar)) => {
+                let summary = format!("@{} / {}", name, roomname);
+                let n = libnotify::Notification::new(&summary, Some(&body[..]), Some(&avatar[..]));
+                n.show().unwrap();
+                gtk::Continue(false)
             }
         });
     }
@@ -677,16 +698,14 @@ impl App {
         let apptx = bk.run();
 
         let gtk_builder = gtk::Builder::new_from_file("res/main_window.glade");
-        let op = Arc::new(Mutex::new(
-            AppOp{
-                gtk_builder: gtk_builder.clone(),
-                load_more_btn: gtk::Button::new_with_label("Load more messages"),
-                backend: apptx,
-                active_room: String::from(""),
-                members: HashMap::new(),
-                rooms: HashMap::new(),
-            }
-        ));
+        let op = Arc::new(Mutex::new(AppOp {
+            gtk_builder: gtk_builder.clone(),
+            load_more_btn: gtk::Button::new_with_label("Load more messages"),
+            backend: apptx,
+            active_room: String::from(""),
+            members: HashMap::new(),
+            rooms: HashMap::new(),
+        }));
 
         let theop = op.clone();
         gtk::timeout_add(500, move || {
@@ -698,74 +717,76 @@ impl App {
                     theop.lock().unwrap().sync();
 
                     theop.lock().unwrap().init_protocols();
-                },
+                }
                 Ok(BKResponse::Name(username)) => {
                     theop.lock().unwrap().set_username(&username);
-                },
+                }
                 Ok(BKResponse::Avatar(path)) => {
                     theop.lock().unwrap().set_avatar(&path);
-                },
+                }
                 Ok(BKResponse::Sync) => {
                     println!("SYNC");
                     theop.lock().unwrap().sync();
-                },
+                }
                 Ok(BKResponse::Rooms(rooms, default)) => {
                     theop.lock().unwrap().set_rooms(rooms, default);
-                },
+                }
                 Ok(BKResponse::RoomDetail(key, value)) => {
                     theop.lock().unwrap().set_room_detail(key, value);
-                },
+                }
                 Ok(BKResponse::RoomAvatar(avatar)) => {
                     theop.lock().unwrap().set_room_avatar(avatar);
-                },
+                }
                 Ok(BKResponse::RoomMessages(msgs)) => {
                     theop.lock().unwrap().show_room_messages(msgs, false);
-                },
+                }
                 Ok(BKResponse::RoomMessagesInit(msgs)) => {
                     theop.lock().unwrap().show_room_messages(msgs, true);
-                },
+                }
                 Ok(BKResponse::RoomMessagesTo(msgs)) => {
                     for msg in msgs.iter().rev() {
                         theop.lock().unwrap().add_room_message(msg, MsgPos::Top);
                     }
                     theop.lock().unwrap().load_more_normal();
-                },
+                }
                 Ok(BKResponse::RoomMembers(members)) => {
                     let mut ms = members;
-                    ms.sort_by(|x, y| x.get_alias().to_lowercase().cmp(&y.get_alias().to_lowercase()));
+                    ms.sort_by(|x, y| {
+                        x.get_alias().to_lowercase().cmp(&y.get_alias().to_lowercase())
+                    });
                     for m in ms {
                         theop.lock().unwrap().add_room_member(m);
                     }
                     theop.lock().unwrap().get_room_messages();
-                },
-                Ok(BKResponse::SendMsg) => { },
+                }
+                Ok(BKResponse::SendMsg) => {}
                 Ok(BKResponse::DirectoryProtocols(protocols)) => {
                     theop.lock().unwrap().set_protocols(protocols);
-                },
+                }
                 Ok(BKResponse::DirectorySearch(rooms)) => {
                     for room in rooms {
                         theop.lock().unwrap().set_directory_room(room);
                     }
-                },
+                }
                 Ok(BKResponse::JoinRoom) => {
                     theop.lock().unwrap().reload_rooms();
-                },
+                }
                 Ok(BKResponse::MarkedAsRead(r, _)) => {
                     theop.lock().unwrap().update_room_notifications(&r, |_| 0);
-                },
+                }
                 // errors
                 Ok(err) => {
                     println!("Query error: {:?}", err);
                 }
-                Err(_) => { },
+                Err(_) => {}
             };
 
             gtk::Continue(true)
         });
 
         let app = App {
-            gtk_app,
-            gtk_builder,
+            gtk_app: gtk_app,
+            gtk_builder: gtk_builder,
             op: op.clone(),
         };
 
@@ -776,7 +797,8 @@ impl App {
 
     pub fn connect_gtk(&self) {
         // Set up shutdown callback
-        let window: gtk::Window = self.gtk_builder.get_object("main_window")
+        let window: gtk::Window = self.gtk_builder
+            .get_object("main_window")
             .expect("Couldn't find main_window in ui file.");
 
         window.set_title("Guillotine");
@@ -790,9 +812,7 @@ impl App {
             Inhibit(false)
         });
 
-        self.gtk_app.connect_startup(move |app| {
-            window.set_application(app);
-        });
+        self.gtk_app.connect_startup(move |app| { window.set_application(app); });
 
         self.create_load_more_btn();
 
@@ -824,21 +844,15 @@ impl App {
             .expect("Can't find directory_scroll in ui file.");
 
         let mut op = self.op.clone();
-        btn.connect_clicked(move |_| {
-            op.lock().unwrap().search_rooms(false);
+        btn.connect_clicked(move |_| { op.lock().unwrap().search_rooms(false); });
+
+        op = self.op.clone();
+        scroll.connect_edge_reached(move |_, dir| if dir == gtk::PositionType::Bottom {
+            op.lock().unwrap().load_more_rooms();
         });
 
         op = self.op.clone();
-        scroll.connect_edge_reached(move |_, dir| {
-            if dir == gtk::PositionType::Bottom {
-                op.lock().unwrap().load_more_rooms();
-            }
-        });
-
-        op = self.op.clone();
-        q.connect_activate(move |_| {
-            op.lock().unwrap().search_rooms(false);
-        });
+        q.connect_activate(move |_| { op.lock().unwrap().search_rooms(false); });
     }
 
     fn create_load_more_btn(&self) {
@@ -851,9 +865,7 @@ impl App {
         messages.add(&btn);
 
         let op = self.op.clone();
-        btn.connect_clicked(move |_| {
-            op.lock().unwrap().load_more_messages();
-        });
+        btn.connect_clicked(move |_| { op.lock().unwrap().load_more_messages(); });
     }
 
     fn connect_msg_scroll(&self) {
@@ -862,43 +874,41 @@ impl App {
             .expect("Can't find message_scroll in ui file.");
 
         let op = self.op.clone();
-        s.connect_edge_overshot(move |_, dir| {
-            if dir == gtk::PositionType::Top {
-                op.lock().unwrap().load_more_messages();
-            }
+        s.connect_edge_overshot(move |_, dir| if dir == gtk::PositionType::Top {
+            op.lock().unwrap().load_more_messages();
         });
     }
 
     fn connect_send(&self) {
-        let send_button: gtk::ToolButton = self.gtk_builder.get_object("send_button")
+        let send_button: gtk::ToolButton = self.gtk_builder
+            .get_object("send_button")
             .expect("Couldn't find send_button in ui file.");
-        let msg_entry: gtk::Entry = self.gtk_builder.get_object("msg_entry")
+        let msg_entry: gtk::Entry = self.gtk_builder
+            .get_object("msg_entry")
             .expect("Couldn't find msg_entry in ui file.");
 
         let entry = msg_entry.clone();
         let mut op = self.op.clone();
-        send_button.connect_clicked(move |_| {
-            if let Some(text) = entry.get_text() {
-                op.lock().unwrap().send_message(text);
-                entry.set_text("");
-            }
+        send_button.connect_clicked(move |_| if let Some(text) = entry.get_text() {
+            op.lock().unwrap().send_message(text);
+            entry.set_text("");
         });
 
         op = self.op.clone();
-        msg_entry.connect_activate(move |entry| {
-            if let Some(text) = entry.get_text() {
-                op.lock().unwrap().send_message(text);
-                entry.set_text("");
-            }
+        msg_entry.connect_activate(move |entry| if let Some(text) = entry.get_text() {
+            op.lock().unwrap().send_message(text);
+            entry.set_text("");
         });
     }
 
     fn connect_user_button(&self) {
         // Set up user popover
-        let user_button: gtk::Button = self.gtk_builder.get_object("user_button")
+        let user_button: gtk::Button = self.gtk_builder
+            .get_object("user_button")
             .expect("Couldn't find user_button in ui file.");
 
-        let user_menu: gtk::Popover = self.gtk_builder.get_object("user_menu")
+        let user_menu: gtk::Popover = self.gtk_builder
+            .get_object("user_menu")
             .expect("Couldn't find user_menu in ui file.");
 
         user_button.connect_clicked(move |_| user_menu.show_all());
@@ -906,7 +916,8 @@ impl App {
 
     fn connect_login_button(&self) {
         // Login click
-        let login_btn: gtk::Button = self.gtk_builder.get_object("login_button")
+        let login_btn: gtk::Button = self.gtk_builder
+            .get_object("login_button")
             .expect("Couldn't find login_button in ui file.");
 
         let op = self.op.clone();
@@ -914,7 +925,8 @@ impl App {
     }
 
     fn connect_register_button(&self) {
-        let btn: gtk::Button = self.gtk_builder.get_object("register_button")
+        let btn: gtk::Button = self.gtk_builder
+            .get_object("register_button")
             .expect("Couldn't find register_button in ui file.");
 
         let op = self.op.clone();
@@ -922,7 +934,8 @@ impl App {
     }
 
     fn connect_guest_button(&self) {
-        let btn: gtk::Button = self.gtk_builder.get_object("guest_button")
+        let btn: gtk::Button = self.gtk_builder
+            .get_object("guest_button")
             .expect("Couldn't find guest_button in ui file.");
 
         let op = self.op.clone();
@@ -936,7 +949,8 @@ impl App {
 
     fn connect_room_treeview(&self) {
         // room selection
-        let treeview: gtk::TreeView = self.gtk_builder.get_object("rooms_tree_view")
+        let treeview: gtk::TreeView = self.gtk_builder
+            .get_object("rooms_tree_view")
             .expect("Couldn't find rooms_tree_view in ui file.");
 
         let op = self.op.clone();
@@ -951,7 +965,8 @@ impl App {
 
     fn connect_member_treeview(&self) {
         // member selection
-        let members: gtk::TreeView = self.gtk_builder.get_object("members_treeview")
+        let members: gtk::TreeView = self.gtk_builder
+            .get_object("members_treeview")
             .expect("Couldn't find members_treeview in ui file.");
 
         let op = self.op.clone();
@@ -962,19 +977,17 @@ impl App {
             op.lock().unwrap().member_clicked(id.get().unwrap());
         });
 
-        let mbutton: gtk::Button = self.gtk_builder.get_object("members_hide_button")
+        let mbutton: gtk::Button = self.gtk_builder
+            .get_object("members_hide_button")
             .expect("Couldn't find members_hide_button in ui file.");
-        let mbutton2: gtk::Button = self.gtk_builder.get_object("members_show_button")
+        let mbutton2: gtk::Button = self.gtk_builder
+            .get_object("members_show_button")
             .expect("Couldn't find members_show_button in ui file.");
 
         let op = self.op.clone();
-        mbutton.connect_clicked(move |_| {
-            op.lock().unwrap().hide_members();
-        });
+        mbutton.connect_clicked(move |_| { op.lock().unwrap().hide_members(); });
         let op = self.op.clone();
-        mbutton2.connect_clicked(move |_| {
-            op.lock().unwrap().show_members();
-        });
+        mbutton2.connect_clicked(move |_| { op.lock().unwrap().show_members(); });
 
     }
 

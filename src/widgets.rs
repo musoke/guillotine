@@ -34,7 +34,7 @@ pub struct RoomBox<'a> {
 
 impl<'a> MessageBox<'a> {
     pub fn new(msg: &'a Message, op: &'a AppOp) -> MessageBox<'a> {
-        MessageBox { msg, op }
+        MessageBox { msg: msg, op: op }
     }
 
     pub fn widget(&self) -> gtk::Box {
@@ -91,15 +91,13 @@ impl<'a> MessageBox<'a> {
 
         let (tx, rx): (Sender<String>, Receiver<String>) = channel();
         backend.send(BKCommand::GetAvatarAsync(sender, tx)).unwrap();
-        gtk::timeout_add(50, move || {
-            match rx.try_recv() {
-                Err(_) => gtk::Continue(true),
-                Ok(fname) => {
-                    if let Ok(pixbuf) = Pixbuf::new_from_file_at_scale(&fname, 32, 32, false) {
-                        a.set_from_pixbuf(&pixbuf);
-                    }
-                    gtk::Continue(false)
+        gtk::timeout_add(50, move || match rx.try_recv() {
+            Err(_) => gtk::Continue(true),
+            Ok(fname) => {
+                if let Ok(pixbuf) = Pixbuf::new_from_file_at_scale(&fname, 32, 32, false) {
+                    a.set_from_pixbuf(&pixbuf);
                 }
+                gtk::Continue(false)
             }
         });
         avatar.set_alignment(0.5, 0.);
@@ -110,7 +108,7 @@ impl<'a> MessageBox<'a> {
     fn build_room_msg_username(&self, sender: &str, member: Option<&Member>) -> gtk::Label {
         let uname = match member {
             Some(m) => m.get_alias(),
-            None => String::from(sender)
+            None => String::from(sender),
         };
 
         let username = gtk::Label::new("");
@@ -191,7 +189,10 @@ impl<'a> MessageBox<'a> {
 
 impl<'a> RoomBox<'a> {
     pub fn new(room: &'a Room, op: &'a AppOp) -> RoomBox<'a> {
-        RoomBox { room, op }
+        RoomBox {
+            room: room,
+            op: op,
+        }
     }
 
     pub fn widget(&self) -> gtk::Box {
@@ -211,19 +212,17 @@ impl<'a> RoomBox<'a> {
         let name = mname.clone();
         let (tx, rx): (Sender<String>, Receiver<String>) = channel();
         self.op.backend.send(BKCommand::GetThumbAsync(r.avatar.clone(), tx)).unwrap();
-        gtk::timeout_add(50, move || {
-            match rx.try_recv() {
-                Err(_) => gtk::Continue(true),
-                Ok(fname) => {
-                    let mut f = fname.clone();
-                    if f.is_empty() {
-                        f = util::draw_identicon(&id, name.clone()).unwrap();
-                    }
-                    if let Ok(pixbuf) = Pixbuf::new_from_file_at_scale(&f, 32, 32, false) {
-                        a.set_from_pixbuf(&pixbuf);
-                    }
-                    gtk::Continue(false)
+        gtk::timeout_add(50, move || match rx.try_recv() {
+            Err(_) => gtk::Continue(true),
+            Ok(fname) => {
+                let mut f = fname.clone();
+                if f.is_empty() {
+                    f = util::draw_identicon(&id, name.clone()).unwrap();
                 }
+                if let Ok(pixbuf) = Pixbuf::new_from_file_at_scale(&f, 32, 32, false) {
+                    a.set_from_pixbuf(&pixbuf);
+                }
+                gtk::Continue(false)
             }
         });
         w.pack_start(&avatar, false, false, 0);

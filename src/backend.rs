@@ -106,17 +106,20 @@ pub enum BKResponse {
 impl Backend {
     pub fn new(tx: Sender<BKResponse>) -> Backend {
         let data = BackendData {
-                    user_id: String::from("Guest"),
-                    access_token: String::from(""),
-                    server_url: String::from("https://matrix.org"),
-                    since: String::from(""),
-                    msgid: 1,
-                    msgs_batch_start: String::from(""),
-                    msgs_batch_end: String::from(""),
-                    rooms_since: String::from(""),
-                    join_to_room: String::from(""),
+            user_id: String::from("Guest"),
+            access_token: String::from(""),
+            server_url: String::from("https://matrix.org"),
+            since: String::from(""),
+            msgid: 1,
+            msgs_batch_start: String::from(""),
+            msgs_batch_end: String::from(""),
+            rooms_since: String::from(""),
+            join_to_room: String::from(""),
         };
-        Backend { tx: tx, data: Arc::new(Mutex::new(data)) }
+        Backend {
+            tx: tx,
+            data: Arc::new(Mutex::new(data)),
+        }
     }
 
     pub fn command_recv(&self, cmd: Result<BKCommand, RecvError>) -> bool {
@@ -126,64 +129,64 @@ impl Backend {
             Ok(BKCommand::Login(user, passwd, server)) => {
                 let r = self.login(user, passwd, server);
                 bkerror!(r, tx, BKResponse::LoginError);
-            },
+            }
             Ok(BKCommand::Register(user, passwd, server)) => {
                 let r = self.register(user, passwd, server);
                 bkerror!(r, tx, BKResponse::LoginError);
-            },
+            }
             Ok(BKCommand::Guest(server)) => {
                 let r = self.guest(server);
                 bkerror!(r, tx, BKResponse::GuestLoginError);
-            },
+            }
             Ok(BKCommand::GetUsername) => {
                 let r = self.get_username();
                 bkerror!(r, tx, BKResponse::UserNameError);
-            },
+            }
             Ok(BKCommand::GetAvatar) => {
                 let r = self.get_avatar();
                 bkerror!(r, tx, BKResponse::AvatarError);
-            },
+            }
             Ok(BKCommand::Sync) => {
                 let r = self.sync();
                 bkerror!(r, tx, BKResponse::SyncError);
-            },
+            }
             Ok(BKCommand::SyncForced) => {
                 self.data.lock().unwrap().since = String::from("");
                 let r = self.sync();
                 bkerror!(r, tx, BKResponse::SyncError);
-            },
+            }
             Ok(BKCommand::GetRoomMessages(room)) => {
                 let r = self.get_room_messages(room, false);
                 bkerror!(r, tx, BKResponse::RoomMessagesError);
-            },
+            }
             Ok(BKCommand::GetRoomMessagesTo(room)) => {
                 let r = self.get_room_messages(room, true);
                 bkerror!(r, tx, BKResponse::RoomMessagesError);
-            },
+            }
             Ok(BKCommand::GetAvatarAsync(sender, ctx)) => {
                 let r = self.get_avatar_async(&sender, ctx);
                 bkerror!(r, tx, BKResponse::CommandError);
-            },
+            }
             Ok(BKCommand::GetUserInfoAsync(sender, ctx)) => {
                 let r = self.get_user_info_async(&sender, ctx);
                 bkerror!(r, tx, BKResponse::CommandError);
-            },
+            }
             Ok(BKCommand::GetThumbAsync(media, ctx)) => {
                 let r = self.get_thumb_async(media, ctx);
                 bkerror!(r, tx, BKResponse::CommandError);
-            },
+            }
             Ok(BKCommand::SendMsg(room, msg)) => {
                 let r = self.send_msg(room, msg);
                 bkerror!(r, tx, BKResponse::SendMsgError);
-            },
+            }
             Ok(BKCommand::SetRoom(room)) => {
                 let r = self.set_room(room);
                 bkerror!(r, tx, BKResponse::SetRoomError);
-            },
+            }
             Ok(BKCommand::DirectoryProtocols) => {
                 let r = self.protocols();
                 bkerror!(r, tx, BKResponse::DirectoryError);
-            },
+            }
             Ok(BKCommand::DirectorySearch(dq, dtp, more)) => {
                 let q = match dq {
                     ref a if a.is_empty() => None,
@@ -197,18 +200,18 @@ impl Backend {
 
                 let r = self.room_search(q, tp, more);
                 bkerror!(r, tx, BKResponse::DirectoryError);
-            },
+            }
             Ok(BKCommand::JoinRoom(roomid)) => {
                 let r = self.join_room(roomid);
                 bkerror!(r, tx, BKResponse::JoinRoomError);
-            },
+            }
             Ok(BKCommand::MarkAsRead(roomid, evid)) => {
                 let r = self.mark_as_read(roomid, evid);
                 bkerror!(r, tx, BKResponse::MarkAsReadError);
-            },
+            }
             Ok(BKCommand::ShutDown) => {
                 return false;
-            },
+            }
             Err(_) => {
                 return false;
             }
@@ -220,12 +223,10 @@ impl Backend {
     pub fn run(self) -> Sender<BKCommand> {
         let (apptx, rx): (Sender<BKCommand>, Receiver<BKCommand>) = channel();
 
-        thread::spawn(move || {
-            loop {
-                let cmd = rx.recv();
-                if ! self.command_recv(cmd) {
-                    break;
-                }
+        thread::spawn(move || loop {
+            let cmd = rx.recv();
+            if !self.command_recv(cmd) {
+                break;
             }
         });
 
@@ -248,18 +249,17 @@ impl Backend {
         let data = self.data.clone();
         let tx = self.tx.clone();
         post!(&url,
-            |r: JsonValue| {
-                let uid = String::from(r["user_id"].as_str().unwrap_or(""));
-                let tk = String::from(r["access_token"].as_str().unwrap_or(""));
-                data.lock().unwrap().user_id = uid.clone();
-                data.lock().unwrap().access_token = tk.clone();
-                data.lock().unwrap().since = String::from("");
-                data.lock().unwrap().msgs_batch_end = String::from("");
-                data.lock().unwrap().msgs_batch_start = String::from("");
-                tx.send(BKResponse::Token(uid, tk)).unwrap();
-            },
-            |err| { tx.send(BKResponse::GuestLoginError(err)).unwrap() }
-        );
+              |r: JsonValue| {
+            let uid = String::from(r["user_id"].as_str().unwrap_or(""));
+            let tk = String::from(r["access_token"].as_str().unwrap_or(""));
+            data.lock().unwrap().user_id = uid.clone();
+            data.lock().unwrap().access_token = tk.clone();
+            data.lock().unwrap().since = String::from("");
+            data.lock().unwrap().msgs_batch_end = String::from("");
+            data.lock().unwrap().msgs_batch_start = String::from("");
+            tx.send(BKResponse::Token(uid, tk)).unwrap();
+        },
+              |err| tx.send(BKResponse::GuestLoginError(err)).unwrap());
 
         Ok(())
     }
@@ -351,14 +351,12 @@ impl Backend {
         let userid = self.data.lock().unwrap().user_id.clone();
 
         let tx = self.tx.clone();
-        thread::spawn(move || {
-            match get_user_avatar(&baseu, &userid) {
-                Ok((_, fname)) => {
-                    tx.send(BKResponse::Avatar(fname)).unwrap();
-                },
-                Err(err) => {
-                    tx.send(BKResponse::AvatarError(err)).unwrap();
-                }
+        thread::spawn(move || match get_user_avatar(&baseu, &userid) {
+            Ok((_, fname)) => {
+                tx.send(BKResponse::Avatar(fname)).unwrap();
+            }
+            Err(err) => {
+                tx.send(BKResponse::AvatarError(err)).unwrap();
             }
         });
 
@@ -375,21 +373,14 @@ impl Backend {
 
         if since.is_empty() {
             params = format!("?full_state=false&timeout=30000&access_token={}", token);
-            params = params + "&filter={\
-                                          \"room\": {\
-                                            \"state\": {\
-                                                \"types\": [\"m.room.*\"],\
-                                            },\
-                                            \"timeline\": {\"limit\":0},\
-                                            \"ephemeral\": {\"types\": []}\
-                                          },\
-                                          \"presence\": {\"types\": []},\
-                                          \"event_format\": \"client\",\
-                                          \"event_fields\": [\"type\", \"content\", \"sender\"]\
-
-                                      }";
+            params = params +
+                     "&filter={\"room\": {\"state\": {\"types\": [\"m.room.*\"],},\"timeline\": \
+                      {\"limit\":0},\"ephemeral\": {\"types\": []}},\"presence\": {\"types\": \
+                      []},\"event_format\": \"client\",\"event_fields\": [\"type\", \"content\", \
+                      \"sender\"]}";
         } else {
-            params = format!("?full_state=false&timeout=30000&access_token={}&since={}", token, since);
+            params =
+                format!("?full_state=false&timeout=30000&access_token={}&since={}", token, since);
         }
 
         let url = baseu.join("/_matrix/client/r0/sync")?.join(&params)?;
@@ -475,7 +466,8 @@ impl Backend {
                         avatar = thumb!(&baseu, u).unwrap_or(String::from(""));
                     },
                     None => {
-                        avatar = get_room_avatar(&baseu, &tk, &userid, &roomid).unwrap_or(String::from(""));
+                        avatar = get_room_avatar(&baseu, &tk, &userid, &roomid)
+                            .unwrap_or(String::from(""));
                     }
                 }
                 tx.send(BKResponse::RoomAvatar(avatar)).unwrap();
@@ -507,7 +499,7 @@ impl Backend {
                         false => tx.send(BKResponse::RoomMessagesInit(ms)).unwrap(),
                         true => tx.send(BKResponse::RoomMessagesTo(ms)).unwrap(),
                     };
-                },
+                }
                 Err(err) => {
                     tx.send(BKResponse::RoomMessagesError(err)).unwrap();
                 }
@@ -520,7 +512,8 @@ impl Backend {
     pub fn get_room_members(&self, roomid: String) -> Result<(), Error> {
         let baseu = self.get_base_url()?;
         let tk = self.data.lock().unwrap().access_token.clone();
-        let mut url = baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid + "/"))?.join("members")?;
+        let mut url =
+            baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid + "/"))?.join("members")?;
         url = url.join(&format!("?access_token={}", tk))?;
 
         let tx = self.tx.clone();
@@ -565,22 +558,33 @@ impl Backend {
         let u = String::from(uid);
         thread::spawn(move || {
             match get_user_avatar(&baseu, &u) {
-                Ok((_, fname)) => { tx.send(fname).unwrap(); },
-                Err(_) => { tx.send(String::from("")).unwrap(); }
+                Ok((_, fname)) => {
+                    tx.send(fname).unwrap();
+                }
+                Err(_) => {
+                    tx.send(String::from("")).unwrap();
+                }
             };
         });
 
         Ok(())
     }
 
-    pub fn get_user_info_async(&self, uid: &str, tx: Sender<(String, String)>) -> Result<(), Error> {
+    pub fn get_user_info_async(&self,
+                               uid: &str,
+                               tx: Sender<(String, String)>)
+                               -> Result<(), Error> {
         let baseu = self.get_base_url()?;
 
         let u = String::from(uid);
         thread::spawn(move || {
             match get_user_avatar(&baseu, &u) {
-                Ok(info) => { tx.send(info).unwrap(); },
-                Err(_) => { tx.send((String::new(), String::new())).unwrap(); }
+                Ok(info) => {
+                    tx.send(info).unwrap();
+                }
+                Err(_) => {
+                    tx.send((String::new(), String::new())).unwrap();
+                }
             };
         });
 
@@ -592,8 +596,12 @@ impl Backend {
 
         thread::spawn(move || {
             match thumb!(&baseu, &media) {
-                Ok(fname) => { tx.send(fname).unwrap(); },
-                Err(_) => { tx.send(String::from("")).unwrap(); }
+                Ok(fname) => {
+                    tx.send(fname).unwrap();
+                }
+                Err(_) => {
+                    tx.send(String::from("")).unwrap();
+                }
             };
         });
 
@@ -670,7 +678,11 @@ impl Backend {
         Ok(())
     }
 
-    pub fn room_search(&self, query: Option<String>, third_party: Option<String>, more: bool) -> Result<(), Error> {
+    pub fn room_search(&self,
+                       query: Option<String>,
+                       third_party: Option<String>,
+                       more: bool)
+                       -> Result<(), Error> {
         let baseu = self.get_base_url()?;
         let tk = self.data.lock().unwrap().access_token.clone();
         let mut url = baseu.join("/_matrix/client/r0/publicRooms")?;
@@ -698,7 +710,8 @@ impl Backend {
         let data = self.data.clone();
         post!(&url, &attrs,
             move |r: JsonValue| {
-                data.lock().unwrap().rooms_since = String::from(r["next_batch"].as_str().unwrap_or(""));
+                let next_branch = r["next_batch"].as_str().unwrap_or("");
+                data.lock().unwrap().rooms_since = String::from(next_branch);
 
                 let mut rooms: Vec<Room> = vec![];
                 for room in r["chunk"].as_array().unwrap() {

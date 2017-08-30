@@ -164,7 +164,8 @@ pub fn get_rooms_from_json(r: JsonValue, userid: &str) -> Result<Vec<Room>, Erro
         r.alias = evc(stevents, "m.room.canonical_alias", "alias");
         r.topic = evc(stevents, "m.room.topic", "topic");
         r.notifications = room["unread_notifications"]["notification_count"]
-            .as_i64().unwrap_or(0) as i32;
+            .as_i64()
+            .unwrap_or(0) as i32;
         rooms.push(r);
     }
 
@@ -183,8 +184,9 @@ pub fn get_rooms_timeline_from_json(baseu: &Url, r: JsonValue) -> Result<Vec<Mes
             return Ok(msgs);
         }
 
-        let events = timeline.unwrap().iter()
-                      .filter(|x| x["type"] == "m.room.message");
+        let events = timeline.unwrap()
+            .iter()
+            .filter(|x| x["type"] == "m.room.message");
 
         for ev in events {
             let msg = parse_room_message(baseu, k.clone(), ev);
@@ -206,7 +208,13 @@ pub fn get_media(url: &str) -> Result<Vec<u8>, Error> {
     Ok(buffer)
 }
 
-pub fn dw_media(base: &Url, url: &str, thumb: bool, dest: Option<&str>, w: i32, h: i32) -> Result<String, Error> {
+pub fn dw_media(base: &Url,
+                url: &str,
+                thumb: bool,
+                dest: Option<&str>,
+                w: i32,
+                h: i32)
+                -> Result<String, Error> {
     // TODO, don't download if exists
 
     let xdg_dirs = xdg::BaseDirectories::with_prefix("guillotine").unwrap();
@@ -230,8 +238,10 @@ pub fn dw_media(base: &Url, url: &str, thumb: bool, dest: Option<&str>, w: i32, 
     }
 
     let fname = match dest {
-        None => String::from(xdg_dirs.place_cache_file(&media)?.to_str().ok_or(Error::BackendError)?),
-        Some(d) => String::from(d) + &media
+        None => {
+            String::from(xdg_dirs.place_cache_file(&media)?.to_str().ok_or(Error::BackendError)?)
+        }
+        Some(d) => String::from(d) + &media,
     };
 
     let pathname = fname.clone();
@@ -285,14 +295,10 @@ pub fn get_user_avatar(baseu: &Url, userid: &str) -> Result<(String, String), Er
             let name = String::from(js["displayname"].as_str().unwrap_or("@"));
             match js["avatar_url"].as_str() {
                 Some(url) => Ok((name.clone(), thumb!(baseu, &url)?)),
-                None => {
-                    Ok((name.clone(), draw_identicon(userid, name)?))
-                },
+                None => Ok((name.clone(), draw_identicon(userid, name)?)),
             }
-        },
-        Err(_) => {
-            Ok((String::from(userid), draw_identicon(userid, String::from(&userid[1..2]))?))
         }
+        Err(_) => Ok((String::from(userid), draw_identicon(userid, String::from(&userid[1..2]))?)),
     }
 }
 
@@ -311,8 +317,7 @@ pub fn get_room_avatar(base: &Url, tk: &str, userid: &str, roomid: &str) -> Resu
 
     // we look for members that aren't me
     let filter = |x: &&JsonValue| {
-        (x["type"] == "m.room.member" &&
-         x["content"]["membership"] == "join" &&
+        (x["type"] == "m.room.member" && x["content"]["membership"] == "join" &&
          x["sender"] != userid)
     };
     let members = events.iter().filter(&filter);
@@ -320,12 +325,12 @@ pub fn get_room_avatar(base: &Url, tk: &str, userid: &str, roomid: &str) -> Resu
 
     let m1 = match members2.nth(0) {
         Some(m) => m["content"]["avatar_url"].as_str().unwrap_or(""),
-        None => ""
+        None => "",
     };
 
     let mut fname = match members.count() {
         1 => thumb!(&base, m1).unwrap_or(String::new()),
-        _ => {String::new()},
+        _ => String::new(),
     };
 
     if fname.is_empty() {
@@ -349,28 +354,61 @@ pub fn calculate_hash<T: Hash>(t: &T) -> u64 {
 }
 
 pub fn draw_identicon(fname: &str, name: String) -> Result<String, Error> {
-    let colors = vec![
-        Color{r:  69, g: 189, b: 243},
-        Color{r: 224, g: 143, b: 112},
-        Color{r:  77, g: 182, b: 172},
-        Color{r: 149, g: 117, b: 205},
-        Color{r: 176, g: 133, b:  94},
-        Color{r: 240, g:  98, b: 146},
-        Color{r: 163, g: 211, b: 108},
-        Color{r: 121, g: 134, b: 203},
-        Color{r: 241, g: 185, b:  29},
-    ];
+    let colors = vec![Color {
+                          r: 69,
+                          g: 189,
+                          b: 243,
+                      },
+                      Color {
+                          r: 224,
+                          g: 143,
+                          b: 112,
+                      },
+                      Color {
+                          r: 77,
+                          g: 182,
+                          b: 172,
+                      },
+                      Color {
+                          r: 149,
+                          g: 117,
+                          b: 205,
+                      },
+                      Color {
+                          r: 176,
+                          g: 133,
+                          b: 94,
+                      },
+                      Color {
+                          r: 240,
+                          g: 98,
+                          b: 146,
+                      },
+                      Color {
+                          r: 163,
+                          g: 211,
+                          b: 108,
+                      },
+                      Color {
+                          r: 121,
+                          g: 134,
+                          b: 203,
+                      },
+                      Color {
+                          r: 241,
+                          g: 185,
+                          b: 29,
+                      }];
 
     let xdg_dirs = xdg::BaseDirectories::with_prefix("guillotine").unwrap();
-    let fname = String::from(xdg_dirs.place_cache_file(fname)?.to_str().ok_or(Error::BackendError)?);
+    let fname =
+        String::from(xdg_dirs.place_cache_file(fname)?.to_str().ok_or(Error::BackendError)?);
 
     let image = cairo::ImageSurface::create(cairo::Format::ARgb32, 40, 40)?;
     let g = cairo::Context::new(&image);
 
     let c = &colors[calculate_hash(&fname) as usize % colors.len() as usize];
-    g.set_source_rgba(c.r as f64 / 256.,
-                      c.g as f64 / 256.,
-                      c.b as f64 / 256., 1.);
+    g.set_source_rgba(c.r as f64 / 256., c.g as f64 / 256., c.b as f64 / 256., 1.);
     g.rectangle(0., 0., 40., 40.);
     g.fill();
 
@@ -398,17 +436,16 @@ pub fn calculate_room_name(roomst: &JsonValue, userid: &str) -> Result<String, E
     // looking for "m.room.name" event
     let events = roomst.as_array().ok_or(Error::BackendError)?;
     if let Some(name) = events.iter().find(|x| x["type"] == "m.room.name") {
-        return Ok(String::from(name["content"]["name"].as_str().unwrap_or("WRONG NAME")))
+        return Ok(String::from(name["content"]["name"].as_str().unwrap_or("WRONG NAME")));
     }
     // looking for "m.room.canonical_alias" event
     if let Some(name) = events.iter().find(|x| x["type"] == "m.room.canonical_alias") {
-        return Ok(String::from(name["content"]["alias"].as_str().unwrap_or("WRONG ALIAS")))
+        return Ok(String::from(name["content"]["alias"].as_str().unwrap_or("WRONG ALIAS")));
     }
 
     // we look for members that aren't me
     let filter = |x: &&JsonValue| {
-        (x["type"] == "m.room.member" &&
-         x["content"]["membership"] == "join" &&
+        (x["type"] == "m.room.member" && x["content"]["membership"] == "join" &&
          x["sender"] != userid)
     };
     let members = events.iter().filter(&filter);
@@ -416,18 +453,18 @@ pub fn calculate_room_name(roomst: &JsonValue, userid: &str) -> Result<String, E
 
     let m1 = match members2.nth(0) {
         Some(m) => m["content"]["displayname"].as_str().unwrap_or(""),
-        None => ""
+        None => "",
     };
     let m2 = match members2.nth(1) {
         Some(m) => m["content"]["displayname"].as_str().unwrap_or(""),
-        None => ""
+        None => "",
     };
 
     let name = match members.count() {
         0 => String::from("EMPTY ROOM"),
         1 => String::from(m1),
         2 => format!("{} and {}", m1, m2),
-        _ => format!("{} and Others", m1)
+        _ => format!("{} and Others", m1),
     };
 
     Ok(name)
@@ -453,8 +490,8 @@ pub fn parse_room_message(baseu: &Url, roomid: String, msg: &JsonValue) -> Messa
                 t = url.clone();
             }
             thumb = media!(baseu, &t).unwrap_or(String::from(""));
-        },
-        _ => {},
+        }
+        _ => {}
     };
 
     Message {
@@ -483,8 +520,15 @@ pub fn markup(s: &str) -> String {
     out
 }
 
-pub fn get_initial_room_messages(baseu: &Url, tk: String, roomid: String, get: usize, limit: i32, end: Option<String>) -> Result<(Vec<Message>, String, String), Error> {
-    let mut url = baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid.clone() + "/"))?.join("messages")?;
+pub fn get_initial_room_messages(baseu: &Url,
+                                 tk: String,
+                                 roomid: String,
+                                 get: usize,
+                                 limit: i32,
+                                 end: Option<String>)
+                                 -> Result<(Vec<Message>, String, String), Error> {
+    let mut url =
+        baseu.join("/_matrix/client/r0/rooms/")?.join(&(roomid.clone() + "/"))?.join("messages")?;
     let mut params = format!("?access_token={}&dir=b&limit={}", tk, limit);
     let mut ms: Vec<Message> = vec![];
     let mut nstart;
@@ -493,8 +537,8 @@ pub fn get_initial_room_messages(baseu: &Url, tk: String, roomid: String, get: u
     match end {
         Some(ref e) => {
             params = params + &format!("&from={}", e);
-        },
-        None => {},
+        }
+        None => {}
     };
 
     url = url.join(&params)?;
@@ -519,7 +563,8 @@ pub fn get_initial_room_messages(baseu: &Url, tk: String, roomid: String, get: u
             }
 
             if ms.len() < get {
-                let (more, s, e) = get_initial_room_messages(baseu, tk, roomid, get, limit * 2, Some(nend))?;
+                let (more, s, e) =
+                    get_initial_room_messages(baseu, tk, roomid, get, limit * 2, Some(nend))?;
                 nstart = s;
                 nend = e;
                 for m in more.iter().rev() {
@@ -528,9 +573,7 @@ pub fn get_initial_room_messages(baseu: &Url, tk: String, roomid: String, get: u
             }
 
             Ok((ms, nstart, nend))
-        },
-        Err(err) => {
-            Err(err)
         }
+        Err(err) => Err(err),
     }
 }
