@@ -53,7 +53,6 @@ pub enum BKCommand {
     SyncForced,
     GetRoomMessages(String),
     GetRoomMessagesTo(String),
-    GetAvatarAsync(String, Sender<String>),
     GetThumbAsync(String, Sender<String>),
     GetUserInfoAsync(String, Sender<(String, String)>),
     SendMsg(String, String),
@@ -162,10 +161,6 @@ impl Backend {
             Ok(BKCommand::GetRoomMessagesTo(room)) => {
                 let r = self.get_room_messages(room, true);
                 bkerror!(r, tx, BKResponse::RoomMessagesError);
-            }
-            Ok(BKCommand::GetAvatarAsync(sender, ctx)) => {
-                let r = self.get_avatar_async(&sender, ctx);
-                bkerror!(r, tx, BKResponse::CommandError);
             }
             Ok(BKCommand::GetUserInfoAsync(sender, ctx)) => {
                 let r = self.get_user_info_async(&sender, ctx);
@@ -550,24 +545,6 @@ impl Backend {
         let s = self.data.lock().unwrap().server_url.clone();
         let url = Url::parse(&s)?;
         Ok(url)
-    }
-
-    pub fn get_avatar_async(&self, uid: &str, tx: Sender<String>) -> Result<(), Error> {
-        let baseu = self.get_base_url()?;
-
-        let u = String::from(uid);
-        thread::spawn(move || {
-            match get_user_avatar(&baseu, &u) {
-                Ok((_, fname)) => {
-                    tx.send(fname).unwrap();
-                }
-                Err(_) => {
-                    tx.send(String::from("")).unwrap();
-                }
-            };
-        });
-
-        Ok(())
     }
 
     pub fn get_user_info_async(&self,

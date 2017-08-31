@@ -25,6 +25,7 @@ use app::AppOp;
 pub struct MessageBox<'a> {
     msg: &'a Message,
     op: &'a AppOp,
+    username: gtk::Label,
 }
 
 // Room Search item
@@ -35,12 +36,11 @@ pub struct RoomBox<'a> {
 
 impl<'a> MessageBox<'a> {
     pub fn new(msg: &'a Message, op: &'a AppOp) -> MessageBox<'a> {
-        MessageBox { msg: msg, op: op }
+        let username = gtk::Label::new("");
+        MessageBox { msg: msg, op: op, username }
     }
 
     pub fn widget(&self) -> gtk::Box {
-        let avatar = self.build_room_msg_avatar();
-
         // msg
         // +--------+---------+
         // | avatar | content |
@@ -48,6 +48,7 @@ impl<'a> MessageBox<'a> {
         let msg_widget = gtk::Box::new(gtk::Orientation::Horizontal, 5);
 
         let content = self.build_room_msg_content();
+        let avatar = self.build_room_msg_avatar();
 
         msg_widget.pack_start(&avatar, false, false, 5);
         msg_widget.pack_start(&content, true, true, 0);
@@ -89,15 +90,17 @@ impl<'a> MessageBox<'a> {
         let backend = self.op.backend.clone();
         let avatar = gtk::Image::new_from_icon_name("image-missing", 5);
         let a = avatar.clone();
+        let u = self.username.clone();
 
-        let (tx, rx): (Sender<String>, Receiver<String>) = channel();
-        backend.send(BKCommand::GetAvatarAsync(sender, tx)).unwrap();
+        let (tx, rx): (Sender<(String, String)>, Receiver<(String, String)>) = channel();
+        backend.send(BKCommand::GetUserInfoAsync(sender, tx)).unwrap();
         gtk::timeout_add(50, move || match rx.try_recv() {
             Err(_) => gtk::Continue(true),
-            Ok(fname) => {
-                if let Ok(pixbuf) = Pixbuf::new_from_file_at_scale(&fname, 32, 32, false) {
+            Ok((name, avatar)) => {
+                if let Ok(pixbuf) = Pixbuf::new_from_file_at_scale(&avatar, 32, 32, false) {
                     a.set_from_pixbuf(&pixbuf);
                 }
+                u.set_markup(&format!("<b>{}</b>", name));
                 gtk::Continue(false)
             }
         });
@@ -112,12 +115,11 @@ impl<'a> MessageBox<'a> {
             None => String::from(sender),
         };
 
-        let username = gtk::Label::new("");
-        username.set_markup(&format!("<b>{}</b>", uname));
-        username.set_justify(gtk::Justification::Left);
-        username.set_halign(gtk::Align::Start);
+        self.username.set_markup(&format!("<b>{}</b>", uname));
+        self.username.set_justify(gtk::Justification::Left);
+        self.username.set_halign(gtk::Align::Start);
 
-        username
+        self.username.clone()
     }
 
     fn build_room_msg_body(&self, body: &str) -> gtk::Box {
